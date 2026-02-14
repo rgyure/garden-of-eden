@@ -8,7 +8,7 @@ import json
 # import picamera
 # import cv2
 from time import sleep
-from config import USERNAME, PASSWORD, BROKER, PORT, KEEP_ALIVE_INTERVAL, BASE_TOPIC, IDENTIFIER, MODEL, VERSION, WATER_LOW_CM, UPPER_CAMERA_DEVICE, LOWER_CAMERA_DEVICE, UPPER_IMAGE_PATH, LOWER_IMAGE_PATH, CAMERA_RESOLUTION, IMAGE_INTERVAL_SECONDS
+from config import USERNAME, PASSWORD, BROKER, PORT, KEEP_ALIVE_INTERVAL, BASE_TOPIC, IDENTIFIER, MODEL, VERSION, WATER_LOW_CM, UPPER_CAMERA_DEVICE, LOWER_CAMERA_DEVICE, UPPER_IMAGE_PATH, LOWER_IMAGE_PATH, CAMERA_RESOLUTION, IMAGE_INTERVAL_SECONDS, DISTANCE_SENSOR_ENABLED
 
 from gpiozero import Button  # Import gpiozero Button
 from gpiozero.pins.pigpio import PiGPIOFactory
@@ -45,7 +45,7 @@ pin_factory = PiGPIOFactory()
 
 pump = Pump(pin_factory=pin_factory)
 light = Light(pin_factory=pin_factory)
-distance_sensor = Distance(pin_factory=pin_factory)
+distance_sensor = Distance(pin_factory=pin_factory) if DISTANCE_SENSOR_ENABLED else None
 
 # default on brightness
 brightness  = 50
@@ -138,6 +138,8 @@ def flash_lights(times=3, delay=0.3):
         light.off()
 
 def safe_distance_measure():
+    if not DISTANCE_SENSOR_ENABLED:
+        return None
     global distance_sensor
     try:
         return distance_sensor.measure_once()
@@ -160,6 +162,10 @@ def publish_water_low_mode(client):
 
 
 def update_water_low_state(client):
+    if not DISTANCE_SENSOR_ENABLED:
+        client.publish(BASE_TOPIC + "/water/low/state", "OFF", retain=True)
+        logger.info("Distance sensor disabled, setting water low state to OFF")
+        return
     if WATER_LOW_CM not in (None, 0):
         distance = safe_distance_measure()
         if distance is not None:
@@ -172,7 +178,6 @@ def update_water_low_state(client):
         else:
             logger.warning("Could not update water low state because distance reading failed")
     else:
-        # If checking is disabled, maybe set it to OFF by default
         client.publish(BASE_TOPIC + "/water/low/state", "OFF", retain=True)
         logger.info("Water low checking disabled, setting water low state to OFF")
 
@@ -379,7 +384,7 @@ def on_message(client, userdata, msg):
         # === Pump Logic ===
         if topic_suffix == "pump/command":
             if payload.upper() == "ON":
-                if WATER_LOW_CM not in (None, 0):
+                if DISTANCE_SENSOR_ENABLED and WATER_LOW_CM not in (None, 0):
                     distance = safe_distance_measure()
                     if distance is not None and distance > WATER_LOW_CM:
                         logger.warning(f"Water too low ({distance:.2f}cm > {WATER_LOW_CM:.2f}cm), aborting pump")
@@ -413,11 +418,11 @@ def on_message(client, userdata, msg):
             light.set_duty_cycle(brightness)
             client.publish(BASE_TOPIC + "/light/brightness/state", str(brightness))
 
-        # === Water Level ===
         elif topic_suffix == "water/level/get":
-            distance = safe_distance_measure()
-            if distance is not None:
-                client.publish(BASE_TOPIC + "/water/level", f"{distance:.2f}")
+            if DISTANCE_SENSOR_ENABLED:
+                distance = safe_distance_measure()
+                if distance is not None:
+                    client.publish(BASE_TOPIC + "/water/level", f"{distance:.2f}")
 
         elif topic_suffix == "water/low/cm/set":
             try:
@@ -475,6 +480,8 @@ def publish_humidity(client):
         sleep(30*60)  # Publish frequency, every x seconds
 
 def publish_water_level(client):
+    if not DISTANCE_SENSOR_ENABLED:
+        return
     while True:
         distance = safe_distance_measure()
         if distance is not None:

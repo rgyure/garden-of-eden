@@ -22,6 +22,8 @@ SENSOR_TYPE = os.getenv('SENSOR_TYPE')
 
 WATER_LOW_CM = float(os.getenv("WATER_LOW_CM", 0)) or None
 
+DISTANCE_SENSOR_ENABLED = os.getenv("DISTANCE_SENSOR_ENABLED", "true").lower() == "true"
+
 UPPER_CAMERA_DEVICE = os.getenv("UPPER_CAMERA_DEVICE", "/dev/video0")
 LOWER_CAMERA_DEVICE = os.getenv("LOWER_CAMERA_DEVICE", "/dev/video2")
 UPPER_IMAGE_PATH = os.getenv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg")
