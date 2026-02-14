@@ -1,0 +1,63 @@
+import math
+from datetime import datetime
+import pytz
+
+from app.scheduler.sun import get_sun_times
+
+
+def compute_brightness(now, sunrise, noon, sunset, dawn_brightness, peak_brightness, curve_factor):
+    """Compute target brightness using an exponential curve.
+
+    Returns an integer brightness 0-100.
+    - Before sunrise or after sunset: 0
+    - Sunrise to noon: exponential ramp from dawn_brightness to peak_brightness
+    - Noon to sunset: mirror of the ascending curve
+    """
+    if now <= sunrise or now >= sunset:
+        return 0
+
+    a = curve_factor
+    dawn = dawn_brightness
+    peak = peak_brightness
+
+    if now <= noon:
+        # Ascending half: sunrise -> noon
+        total = (noon - sunrise).total_seconds()
+        elapsed = (now - sunrise).total_seconds()
+        progress = elapsed / total if total > 0 else 1.0
+    else:
+        # Descending half: noon -> sunset (mirror)
+        total = (sunset - noon).total_seconds()
+        elapsed = (sunset - now).total_seconds()
+        progress = elapsed / total if total > 0 else 1.0
+
+    # Exponential curve: f(p) = dawn + (peak - dawn) * (e^(a*p) - 1) / (e^a - 1)
+    if a == 0:
+        # Linear fallback
+        brightness = dawn + (peak - dawn) * progress
+    else:
+        brightness = dawn + (peak - dawn) * (math.exp(a * progress) - 1) / (math.exp(a) - 1)
+
+    return int(round(brightness))
+
+
+def get_target_brightness(config, now=None):
+    """Get the target brightness for the current (or given) time.
+
+    Returns an integer 0-100.
+    """
+    tz = pytz.timezone(config['location']['timezone'])
+    if now is None:
+        now = datetime.now(tz)
+    elif now.tzinfo is None:
+        now = tz.localize(now)
+
+    sunrise, noon, sunset = get_sun_times(config, date=now.date())
+
+    light_cfg = config['light']
+    return compute_brightness(
+        now, sunrise, noon, sunset,
+        light_cfg['dawn_brightness'],
+        light_cfg['peak_brightness'],
+        light_cfg['curve_factor'],
+    )

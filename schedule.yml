@@ -1,0 +1,18 @@
+location:
+  name: "Tucson, Arizona"
+  latitude: 32.2226
+  longitude: -110.9747
+  timezone: "America/Phoenix"
+
+light:
+  dawn_brightness: 40
+  peak_brightness: 100
+  curve_factor: 5.0        # Controls exponential steepness
+
+pump:
+  runs_per_day: 5
+  run_duration_minutes: 5
+  speed: 100
+
+scheduler:
+  reconcile_interval_seconds: 60
