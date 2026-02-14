@@ -6,3 +6,13 @@ venv/
 # If using Jython
 *.class
 .env
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Claude Code
+CLAUDE.md
+.claude/
