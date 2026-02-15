@@ -13,6 +13,10 @@ venv/
 *.iws
 *.ipr
 
+# Logs
+gardyn.log
+scheduler.log
+
 # Claude Code
 CLAUDE.md
 .claude/
