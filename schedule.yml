@@ -7,7 +7,7 @@ location:
 light:
   dawn_brightness: 40
   peak_brightness: 100
-  curve_factor: 5.0        # Controls exponential steepness
+  curve_factor: 5.0        # Controls exponential steepness (sunrise→noon ramp, holds at peak noon→sunset)
 
 pump:
   runs_per_day: 5

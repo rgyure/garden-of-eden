@@ -29,12 +29,13 @@ def compute_brightness(now, sunrise, noon, sunset, dawn_brightness, peak_brightn
     elapsed = (now - sunrise).total_seconds()
     progress = elapsed / total if total > 0 else 1.0
 
-    # Exponential curve: f(p) = dawn + (peak - dawn) * (e^(a*p) - 1) / (e^a - 1)
+    # Exponential curve: f(p) = dawn + (peak - dawn) * (1 - e^(-a*p)) / (1 - e^(-a))
+    # Higher curve_factor = faster ramp toward peak (more exponential)
     if a == 0:
         # Linear fallback
         brightness = dawn + (peak - dawn) * progress
     else:
-        brightness = dawn + (peak - dawn) * (math.exp(a * progress) - 1) / (math.exp(a) - 1)
+        brightness = dawn + (peak - dawn) * (1 - math.exp(-a * progress)) / (1 - math.exp(-a))
 
     return int(round(brightness))
 
