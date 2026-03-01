@@ -8,7 +8,7 @@ import yaml
 import pytz
 import paho.mqtt.client as mqtt
 
-from config import USERNAME, PASSWORD, BROKER, PORT, KEEP_ALIVE_INTERVAL, BASE_TOPIC
+from config import USERNAME, PASSWORD, BROKER, PORT, KEEP_ALIVE_INTERVAL, BASE_TOPIC, IDENTIFIER
 from scheduler_lib.sun import get_sun_times
 from scheduler_lib.pump_schedule import compute_pump_times
 from scheduler_lib.reconciler import Reconciler
@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     log_schedule(config)
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"{IDENTIFIER}_scheduler")
     client.username_pw_set(USERNAME, PASSWORD)
 
     reconciler = Reconciler(client, BASE_TOPIC, config)
