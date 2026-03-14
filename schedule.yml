@@ -10,9 +10,9 @@ light:
   curve_factor: 5.0        # Controls exponential steepness (sunrise→noon ramp, holds at peak noon→sunset)
 
 pump:
-  runs_per_day: 5
-  run_duration_minutes: 5
-  speed: 100
+  runs_per_day: 2
+  run_duration_minutes: 2
+  speed: 60
 
 scheduler:
   reconcile_interval_seconds: 60
