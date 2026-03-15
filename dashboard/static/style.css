@@ -298,6 +298,14 @@ section h2 {
   object-fit: cover;
 }
 
+.camera-timestamp {
+  display: block;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #999;
+  margin-top: 6px;
+}
+
 .camera-card img.no-image {
   display: flex;
   align-items: center;

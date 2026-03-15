@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   connectSSE();
   loadSchedule();
   loadHistory('24h');
+  refreshCameras();
 });
 
 // --- SSE ---
@@ -141,12 +142,30 @@ function toggleOverride(device) {
 // --- Cameras ---
 function refreshCameras() {
   const ts = Date.now();
-  document.getElementById('camera-upper').src = '/api/camera/upper?t=' + ts;
-  document.getElementById('camera-lower').src = '/api/camera/lower?t=' + ts;
+  loadCameraImage('camera-upper', '/api/camera/upper?t=' + ts);
+  loadCameraImage('camera-lower', '/api/camera/lower?t=' + ts);
+}
 
-  // Reset error state
-  document.getElementById('camera-upper').classList.remove('no-image');
-  document.getElementById('camera-lower').classList.remove('no-image');
+async function loadCameraImage(id, url) {
+  const img = document.getElementById(id);
+  const tsEl = document.getElementById(id + '-ts');
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('not found');
+    const blob = await res.blob();
+    img.src = URL.createObjectURL(blob);
+    img.classList.remove('no-image');
+    const taken = res.headers.get('X-Photo-Taken');
+    if (taken) {
+      const d = new Date(taken);
+      tsEl.textContent = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+    }
+  } catch {
+    img.classList.add('no-image');
+    img.removeAttribute('src');
+    img.alt = 'No image available';
+    tsEl.textContent = '';
+  }
 }
 
 // --- Schedule ---

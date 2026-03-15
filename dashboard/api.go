@@ -182,11 +182,13 @@ func (app *App) handleCamera(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	info, err := os.Stat(path)
+	if err != nil {
 		http.Error(w, "no image available", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Photo-Taken", info.ModTime().Format(time.RFC3339))
 	http.ServeFile(w, r, path)
 }
 
