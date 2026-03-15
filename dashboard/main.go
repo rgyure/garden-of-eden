@@ -89,6 +89,7 @@ func main() {
 	mux.HandleFunc("POST /api/pump/command", app.handlePumpCommand)
 	mux.HandleFunc("POST /api/pump/speed", app.handlePumpSpeed)
 	mux.HandleFunc("POST /api/override/{device}", app.handleOverride)
+	mux.HandleFunc("POST /api/camera/capture", app.handleCameraCapture)
 	mux.HandleFunc("GET /api/camera/{name}", app.handleCamera)
 	mux.HandleFunc("GET /api/schedule", app.handleGetSchedule)
 	mux.HandleFunc("PUT /api/schedule", app.handleUpdateSchedule)

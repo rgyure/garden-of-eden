@@ -170,6 +170,11 @@ func (app *App) handleOverride(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (app *App) handleCameraCapture(w http.ResponseWriter, r *http.Request) {
+	app.mqtt.Publish(app.config.BaseTopic+"/image/capture", "")
+	w.WriteHeader(http.StatusOK)
+}
+
 func (app *App) handleCamera(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var path string

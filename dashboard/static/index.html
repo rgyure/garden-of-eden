@@ -99,7 +99,10 @@
     <section>
       <div class="section-header">
         <h2>Cameras</h2>
-        <button class="btn btn-sm" onclick="refreshCameras()">Refresh</button>
+        <div class="btn-group">
+          <button class="btn btn-sm" onclick="refreshCameras()">Refresh</button>
+          <button class="btn btn-sm btn-primary" id="capture-btn" onclick="capturePhotos()">Capture</button>
+        </div>
       </div>
       <div class="camera-grid">
         <div class="card camera-card">

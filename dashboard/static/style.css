@@ -420,6 +420,16 @@ section h2 {
   border-color: #2e7d32;
 }
 
+.btn-group {
+  display: flex;
+  gap: 4px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Period selector */
 .period-selector {
   display: flex;

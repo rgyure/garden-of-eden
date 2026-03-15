@@ -446,6 +446,9 @@ def on_message(client, userdata, msg):
             humidity = humidity_sensor.read()
             client.publish(BASE_TOPIC + "/humidity", f"{humidity:.2f}")
 
+        elif topic_suffix == "image/capture":
+            threading.Thread(target=capture_images, args=(client,), daemon=True).start()
+
     except Exception as e:
         logger.exception(f"Error handling message on topic {msg.topic}: {e}")
 
@@ -489,35 +492,38 @@ def publish_water_level(client):
             client.publish(BASE_TOPIC + "/water/level", f"{distance:.2f}")
         sleep(30 * 60)
 
+def capture_images(client):
+    """Capture images from both cameras and publish to MQTT."""
+    # Capture upper camera image
+    subprocess.check_call([
+        'fswebcam', '-d', UPPER_CAMERA_DEVICE, '-r', CAMERA_RESOLUTION,
+        '-S', '2', '-F', '2', '--no-banner', UPPER_IMAGE_PATH
+    ])
+    logger.info(f"Captured image from upper camera ({UPPER_CAMERA_DEVICE})")
+
+    # Capture lower camera image
+    subprocess.check_call([
+        'fswebcam', '-d', LOWER_CAMERA_DEVICE, '-r', CAMERA_RESOLUTION,
+        '-S', '2', '-F', '2', '--no-banner', LOWER_IMAGE_PATH
+    ])
+    logger.info(f"Captured image from lower camera ({LOWER_CAMERA_DEVICE})")
+
+    # Publish upper camera image
+    with open(UPPER_IMAGE_PATH, 'rb') as f:
+        upper_cam_jpeg_data = f.read()
+        client.publish(BASE_TOPIC + "/image/upper_camera", payload=upper_cam_jpeg_data, qos=0, retain=False)
+        logger.info("Published image to /image/upper_camera")
+
+    # Publish lower camera image
+    with open(LOWER_IMAGE_PATH, 'rb') as f:
+        lower_cam_jpeg_data = f.read()
+        client.publish(BASE_TOPIC + "/image/lower_camera", payload=lower_cam_jpeg_data, qos=0, retain=False)
+        logger.info("Published image to /image/lower_camera")
+
 def publish_images(client):
     while True:
         try:
-            # Capture upper camera image
-            subprocess.check_call([
-                'fswebcam', '-d', UPPER_CAMERA_DEVICE, '-r', CAMERA_RESOLUTION,
-                '-S', '2', '-F', '2', '--no-banner', UPPER_IMAGE_PATH
-            ])
-            logger.info(f"Captured image from upper camera ({UPPER_CAMERA_DEVICE})")
-
-            # Capture lower camera image
-            subprocess.check_call([
-                'fswebcam', '-d', LOWER_CAMERA_DEVICE, '-r', CAMERA_RESOLUTION,
-                '-S', '2', '-F', '2', '--no-banner', LOWER_IMAGE_PATH
-            ])
-            logger.info(f"Captured image from lower camera ({LOWER_CAMERA_DEVICE})")
-
-            # Publish upper camera image
-            with open(UPPER_IMAGE_PATH, 'rb') as f:
-                upper_cam_jpeg_data = f.read()  # Read as raw binary
-                client.publish(BASE_TOPIC + "/image/upper_camera", payload=upper_cam_jpeg_data, qos=0, retain=False)
-                logger.info("Published image to /image/upper_camera")
-
-            # Publish lower camera image
-            with open(LOWER_IMAGE_PATH, 'rb') as f:
-                lower_cam_jpeg_data = f.read()  # Read as raw binary
-                client.publish(BASE_TOPIC + "/image/lower_camera", payload=lower_cam_jpeg_data, qos=0, retain=False)
-                logger.info("Published image to /image/lower_camera")
-
+            capture_images(client)
         except subprocess.CalledProcessError as e:
             logger.error(f"Camera capture failed: {e}")
         except Exception as e:

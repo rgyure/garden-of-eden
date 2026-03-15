@@ -140,6 +140,22 @@ function toggleOverride(device) {
 }
 
 // --- Cameras ---
+async function capturePhotos() {
+  const btn = document.getElementById('capture-btn');
+  btn.disabled = true;
+  btn.textContent = 'Capturing...';
+  try {
+    await fetch('/api/camera/capture', { method: 'POST' });
+    // Wait for cameras to finish capturing (~5s for both)
+    await new Promise(r => setTimeout(r, 5000));
+    await refreshCameras();
+  } catch (err) {
+    console.error('Capture failed:', err);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Capture';
+}
+
 function refreshCameras() {
   const ts = Date.now();
   loadCameraImage('camera-upper', '/api/camera/upper?t=' + ts);
