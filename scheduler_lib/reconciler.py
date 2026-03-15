@@ -21,6 +21,10 @@ class Reconciler:
         self.actual_light_state = None  # "ON" / "OFF" or None
         self.actual_pump_state = None  # "ON" / "OFF" or None
 
+        # Override flags — when ON, reconciler skips that device
+        self.light_override = False
+        self.pump_override = False
+
     def update_state(self, topic_suffix, payload):
         """Called from on_message to track actual hardware state."""
         if topic_suffix == "light/brightness/state":
@@ -32,6 +36,12 @@ class Reconciler:
             self.actual_light_state = payload.upper()
         elif topic_suffix == "pump/state":
             self.actual_pump_state = payload.upper()
+        elif topic_suffix == "light/override":
+            self.light_override = payload.upper() == "ON"
+            logger.info(f"Light override {'enabled' if self.light_override else 'disabled'}")
+        elif topic_suffix == "pump/override":
+            self.pump_override = payload.upper() == "ON"
+            logger.info(f"Pump override {'enabled' if self.pump_override else 'disabled'}")
 
     def reconcile(self):
         """Run one reconciliation cycle. Publish corrections as needed."""
@@ -39,6 +49,8 @@ class Reconciler:
         self._reconcile_pump()
 
     def _reconcile_light(self):
+        if self.light_override:
+            return
         target = get_target_brightness(self.config)
 
         if target == 0:
@@ -57,6 +69,8 @@ class Reconciler:
                 self.client.publish(self.base_topic + "/light/brightness/set", str(target))
 
     def _reconcile_pump(self):
+        if self.pump_override:
+            return
         should_be_on, speed = should_pump_be_on(self.config)
 
         if should_be_on:

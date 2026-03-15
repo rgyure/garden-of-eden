@@ -17,6 +17,10 @@ venv/
 gardyn.log
 scheduler.log
 
+# Dashboard
+data/
+gardyn-dashboard
+
 # Claude Code
 CLAUDE.md
 .claude/

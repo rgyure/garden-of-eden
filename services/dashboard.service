@@ -1,0 +1,13 @@
+[Unit]
+Description=Gardyn Dashboard
+After=network.target mqtt.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/garden-of-eden
+ExecStart=/var/garden-of-eden/dashboard/gardyn-dashboard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

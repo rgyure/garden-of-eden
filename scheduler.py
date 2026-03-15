@@ -70,6 +70,9 @@ def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe(BASE_TOPIC + "/light/state")
     client.subscribe(BASE_TOPIC + "/light/brightness/state")
     client.subscribe(BASE_TOPIC + "/pump/state")
+    # Subscribe to override topics
+    client.subscribe(BASE_TOPIC + "/light/override")
+    client.subscribe(BASE_TOPIC + "/pump/override")
     # Subscribe to sensor data topics for logging
     client.subscribe(BASE_TOPIC + "/temperature")
     client.subscribe(BASE_TOPIC + "/humidity")

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garden of Eden</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Garden of Eden</h1>
+      <span class="status" id="conn-status">Connecting...</span>
+    </header>
+
+    <!-- Controls -->
+    <section class="controls">
+      <div class="card control-card" id="light-card">
+        <h2>Light</h2>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="light-toggle" onchange="toggleLight()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="state-label" id="light-state">OFF</span>
+        </div>
+        <div class="slider-row">
+          <label for="brightness-slider">Brightness</label>
+          <input type="range" id="brightness-slider" min="0" max="100" value="0"
+                 oninput="document.getElementById('brightness-val').textContent=this.value+'%'"
+                 onchange="setBrightness(this.value)">
+          <span id="brightness-val">0%</span>
+        </div>
+        <div class="override-row">
+          <label class="override-label">
+            <input type="checkbox" id="light-override" onchange="toggleOverride('light')">
+            <span>Override schedule</span>
+          </label>
+        </div>
+      </div>
+      <div class="card control-card" id="pump-card">
+        <h2>Pump</h2>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="pump-toggle" onchange="togglePump()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="state-label" id="pump-state">OFF</span>
+        </div>
+        <div class="slider-row">
+          <label for="speed-slider">Speed</label>
+          <input type="range" id="speed-slider" min="0" max="100" value="0"
+                 oninput="document.getElementById('speed-val').textContent=this.value+'%'"
+                 onchange="setPumpSpeed(this.value)">
+          <span id="speed-val">0%</span>
+        </div>
+        <div class="override-row">
+          <label class="override-label">
+            <input type="checkbox" id="pump-override" onchange="toggleOverride('pump')">
+            <span>Override schedule</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sensors -->
+    <section>
+      <h2>Sensors</h2>
+      <div class="sensor-grid">
+        <div class="card sensor-card">
+          <span class="sensor-label">Temperature</span>
+          <span class="sensor-value" id="temperature">--</span>
+          <span class="sensor-unit">&deg;C</span>
+        </div>
+        <div class="card sensor-card">
+          <span class="sensor-label">Humidity</span>
+          <span class="sensor-value" id="humidity">--</span>
+          <span class="sensor-unit">%</span>
+        </div>
+        <div class="card sensor-card">
+          <span class="sensor-label">PCB Temp</span>
+          <span class="sensor-value" id="pcb-temp">--</span>
+          <span class="sensor-unit">&deg;C</span>
+        </div>
+        <div class="card sensor-card">
+          <span class="sensor-label">Water Level</span>
+          <span class="sensor-value" id="water-level">--</span>
+          <span class="sensor-unit">cm</span>
+        </div>
+        <div class="card sensor-card" id="water-low-card">
+          <span class="sensor-label">Water Low</span>
+          <span class="sensor-value" id="water-low">--</span>
+          <span class="sensor-unit" id="water-low-mode"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cameras -->
+    <section>
+      <div class="section-header">
+        <h2>Cameras</h2>
+        <button class="btn btn-sm" onclick="refreshCameras()">Refresh</button>
+      </div>
+      <div class="camera-grid">
+        <div class="card camera-card">
+          <h3>Upper</h3>
+          <img id="camera-upper" src="/api/camera/upper" alt="Upper camera"
+               onerror="this.alt='No image available'; this.classList.add('no-image')">
+        </div>
+        <div class="card camera-card">
+          <h3>Lower</h3>
+          <img id="camera-lower" src="/api/camera/lower" alt="Lower camera"
+               onerror="this.alt='No image available'; this.classList.add('no-image')">
+        </div>
+      </div>
+    </section>
+
+    <!-- Schedule -->
+    <section>
+      <div class="section-header">
+        <h2>Schedule</h2>
+        <button class="btn btn-sm" id="schedule-edit-btn" onclick="toggleScheduleEdit()">Edit</button>
+      </div>
+      <div class="card" id="schedule-card">
+        <!-- Read-only view -->
+        <div id="schedule-display">
+          <div class="schedule-group">
+            <h3>Location</h3>
+            <div class="schedule-row"><span>Name</span><span id="sched-location">--</span></div>
+          </div>
+          <div class="schedule-group">
+            <h3>Light</h3>
+            <div class="schedule-row"><span>Dawn Brightness</span><span id="sched-dawn">--</span></div>
+            <div class="schedule-row"><span>Peak Brightness</span><span id="sched-peak">--</span></div>
+            <div class="schedule-row"><span>Curve Factor</span><span id="sched-curve">--</span></div>
+          </div>
+          <div class="schedule-group">
+            <h3>Pump</h3>
+            <div class="schedule-row"><span>Runs / Day</span><span id="sched-runs">--</span></div>
+            <div class="schedule-row"><span>Duration</span><span id="sched-duration">--</span></div>
+            <div class="schedule-row"><span>Speed</span><span id="sched-speed">--</span></div>
+          </div>
+          <div class="schedule-group">
+            <h3>Reconciler</h3>
+            <div class="schedule-row"><span>Interval</span><span id="sched-interval">--</span></div>
+          </div>
+        </div>
+        <!-- Edit form (hidden by default) -->
+        <form id="schedule-form" class="hidden" onsubmit="saveSchedule(event)">
+          <div class="schedule-group">
+            <h3>Light</h3>
+            <div class="form-row">
+              <label for="edit-dawn">Dawn Brightness (0-100)</label>
+              <input type="number" id="edit-dawn" min="0" max="100" required>
+            </div>
+            <div class="form-row">
+              <label for="edit-peak">Peak Brightness (0-100)</label>
+              <input type="number" id="edit-peak" min="0" max="100" required>
+            </div>
+            <div class="form-row">
+              <label for="edit-curve">Curve Factor (0-20)</label>
+              <input type="number" id="edit-curve" min="0" max="20" step="0.5" required>
+            </div>
+          </div>
+          <div class="schedule-group">
+            <h3>Pump</h3>
+            <div class="form-row">
+              <label for="edit-runs">Runs / Day (0-48)</label>
+              <input type="number" id="edit-runs" min="0" max="48" required>
+            </div>
+            <div class="form-row">
+              <label for="edit-duration">Duration (minutes, 1-60)</label>
+              <input type="number" id="edit-duration" min="1" max="60" required>
+            </div>
+            <div class="form-row">
+              <label for="edit-speed">Speed (0-100)</label>
+              <input type="number" id="edit-speed" min="0" max="100" required>
+            </div>
+          </div>
+          <div class="schedule-group">
+            <h3>Reconciler</h3>
+            <div class="form-row">
+              <label for="edit-interval">Interval (seconds, 10-3600)</label>
+              <input type="number" id="edit-interval" min="10" max="3600" required>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn" onclick="toggleScheduleEdit()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- History -->
+    <section>
+      <div class="section-header">
+        <h2>History</h2>
+        <div class="period-selector">
+          <button class="btn btn-sm active" onclick="loadHistory('24h', this)">24h</button>
+          <button class="btn btn-sm" onclick="loadHistory('7d', this)">7d</button>
+          <button class="btn btn-sm" onclick="loadHistory('30d', this)">30d</button>
+        </div>
+      </div>
+      <div class="card">
+        <canvas id="history-chart" height="250"></canvas>
+        <p class="chart-empty hidden" id="chart-empty">No historical data yet</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+  <script src="app.js"></script>
+</body>
+</html>
