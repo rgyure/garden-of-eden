@@ -70,7 +70,7 @@
         <div class="card sensor-card">
           <span class="sensor-label">Temperature</span>
           <span class="sensor-value" id="temperature">--</span>
-          <span class="sensor-unit">&deg;C</span>
+          <span class="sensor-unit">&deg;F</span>
         </div>
         <div class="card sensor-card">
           <span class="sensor-label">Humidity</span>
@@ -80,7 +80,7 @@
         <div class="card sensor-card">
           <span class="sensor-label">PCB Temp</span>
           <span class="sensor-value" id="pcb-temp">--</span>
-          <span class="sensor-unit">&deg;C</span>
+          <span class="sensor-unit">&deg;F</span>
         </div>
         <div class="card sensor-card">
           <span class="sensor-label">Water Level</span>
@@ -118,6 +118,24 @@
       </div>
     </section>
 
+    <!-- Plants -->
+    <section>
+      <div class="section-header">
+        <h2>Plants</h2>
+        <span class="pod-stats" id="pod-stats">--</span>
+      </div>
+      <div class="card">
+        <div class="pod-grid" id="pod-grid"></div>
+        <div class="pod-legend">
+          <span class="pod-legend-dot germination"></span>Germ
+          <span class="pod-legend-dot seedling"></span>Seedling
+          <span class="pod-legend-dot vegetative"></span>Veg
+          <span class="pod-legend-dot flowering"></span>Flower
+          <span class="pod-legend-dot harvest_ready"></span>Harvest
+        </div>
+      </div>
+    </section>
+
     <!-- Schedule -->
     <section>
       <div class="section-header">
@@ -139,6 +157,16 @@
           </div>
           <div class="schedule-group">
             <h3>Pump</h3>
+            <div class="schedule-row stage-row">
+              <span>Growth Stage</span>
+              <select id="stage-select" class="stage-select" onchange="setStage(this.value)">
+                <option value="germination">Germination (0–2 wk)</option>
+                <option value="seedling">Seedling (2–4 wk)</option>
+                <option value="vegetative">Vegetative (4–7 wk)</option>
+                <option value="flowering">Flowering / Fruiting (7+ wk)</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
             <div class="schedule-row"><span>Runs / Day</span><span id="sched-runs">--</span></div>
             <div class="schedule-row"><span>Duration</span><span id="sched-duration">--</span></div>
             <div class="schedule-row"><span>Speed</span><span id="sched-speed">--</span></div>
@@ -210,6 +238,54 @@
         <p class="chart-empty hidden" id="chart-empty">No historical data yet</p>
       </div>
     </section>
+  </div>
+
+  <!-- Pod editor modal -->
+  <div class="modal-backdrop hidden" id="pod-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="pod-modal-title">Pod</h3>
+        <button class="modal-close" onclick="closePodModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="pod-active-form" class="hidden">
+          <h4 class="modal-section-title">Current planting</h4>
+          <div class="form-row"><label for="edit-variety">Variety</label>
+            <input type="text" id="edit-variety" placeholder="e.g. Genovese Basil"></div>
+          <div class="form-row"><label for="edit-planted">Planted</label>
+            <input type="date" id="edit-planted"></div>
+          <div class="form-row"><label for="edit-days">Days to harvest</label>
+            <input type="number" id="edit-days" min="0" max="365" placeholder="e.g. 60"></div>
+          <div class="form-row"><label for="edit-source">Seed source</label>
+            <input type="text" id="edit-source" placeholder="optional"></div>
+          <div class="form-row"><label for="edit-notes">Notes</label>
+            <textarea id="edit-notes" rows="2"></textarea></div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" onclick="savePodEdit()">Save</button>
+            <button type="button" class="btn" onclick="endPlanting('harvested')">Mark harvested</button>
+            <button type="button" class="btn" onclick="endPlanting('removed')">Removed</button>
+            <button type="button" class="btn" onclick="endPlanting('failed')">Failed</button>
+          </div>
+        </div>
+        <div id="pod-empty-form" class="hidden">
+          <h4 class="modal-section-title">Empty pod &mdash; add planting</h4>
+          <div class="form-row"><label for="new-variety">Variety</label>
+            <input type="text" id="new-variety" placeholder="e.g. Cherry Tomato"></div>
+          <div class="form-row"><label for="new-planted">Planted</label>
+            <input type="date" id="new-planted"></div>
+          <div class="form-row"><label for="new-days">Days to harvest</label>
+            <input type="number" id="new-days" min="0" max="365" placeholder="e.g. 80"></div>
+          <div class="form-row"><label for="new-source">Seed source</label>
+            <input type="text" id="new-source" placeholder="optional"></div>
+          <div class="form-row"><label for="new-notes">Notes</label>
+            <textarea id="new-notes" rows="2"></textarea></div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" onclick="addPlanting()">Add planting</button>
+          </div>
+        </div>
+        <div id="pod-history" class="pod-history"></div>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>

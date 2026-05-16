@@ -25,6 +25,7 @@ type Config struct {
 	Identifier     string
 	HTTPPort       int
 	SchedulePath   string
+	PodsPath       string
 	DataDir        string
 	UpperImagePath string
 	LowerImagePath string
@@ -59,6 +60,7 @@ func loadConfig() Config {
 		Identifier:     getEnv("MQTT_IDENTIFIER", "gardyn"),
 		HTTPPort:       httpPort,
 		SchedulePath:   getEnv("SCHEDULE_PATH", "schedule.yml"),
+		PodsPath:       getEnv("PODS_PATH", "pods.yml"),
 		DataDir:        getEnv("DASHBOARD_DATA_DIR", "data"),
 		UpperImagePath: getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
 		LowerImagePath: getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
@@ -93,6 +95,8 @@ func main() {
 	mux.HandleFunc("GET /api/camera/{name}", app.handleCamera)
 	mux.HandleFunc("GET /api/schedule", app.handleGetSchedule)
 	mux.HandleFunc("PUT /api/schedule", app.handleUpdateSchedule)
+	mux.HandleFunc("GET /api/plantings", app.handleGetPlantings)
+	mux.HandleFunc("PUT /api/plantings", app.handleUpdatePlantings)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
