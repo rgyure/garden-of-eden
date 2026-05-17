@@ -30,8 +30,10 @@ type State struct {
 	PH              *float64 `json:"ph"`
 	EC              *float64 `json:"ec"`
 	TDS             *float64 `json:"tds"`
+	WaterTemp       *float64 `json:"water_temp"`
 	DoseState       map[string]string `json:"dose_state"`
 	DoseLast        map[string]json.RawMessage `json:"dose_last"`
+	DoseAnomaly     map[string]json.RawMessage `json:"dose_anomaly"`
 	WaterLevel      *float64 `json:"water_level"`
 	WaterLowState   string   `json:"water_low_state"`
 	WaterLowCM      *float64 `json:"water_low_cm"`
@@ -42,10 +44,11 @@ type State struct {
 
 func NewState() *State {
 	return &State{
-		LightState: "OFF",
-		PumpState:  "OFF",
-		DoseState:  map[string]string{},
-		DoseLast:   map[string]json.RawMessage{},
+		LightState:  "OFF",
+		PumpState:   "OFF",
+		DoseState:   map[string]string{},
+		DoseLast:    map[string]json.RawMessage{},
+		DoseAnomaly: map[string]json.RawMessage{},
 	}
 }
 
@@ -64,6 +67,12 @@ func (s *State) Snapshot() State {
 		cp.DoseLast = make(map[string]json.RawMessage, len(s.DoseLast))
 		for k, v := range s.DoseLast {
 			cp.DoseLast[k] = v
+		}
+	}
+	if s.DoseAnomaly != nil {
+		cp.DoseAnomaly = make(map[string]json.RawMessage, len(s.DoseAnomaly))
+		for k, v := range s.DoseAnomaly {
+			cp.DoseAnomaly[k] = v
 		}
 	}
 	return cp
@@ -175,7 +184,7 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	now := time.Now()
 	changed := false
 
-	// Dynamic dose topics: gardyn/dose/<name>/{state,last}
+	// Dynamic dose topics: gardyn/dose/<name>/{state,last,anomaly}
 	if strings.HasPrefix(suffix, "dose/") {
 		parts := strings.Split(suffix, "/")
 		if len(parts) == 3 {
@@ -187,12 +196,18 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 			if m.app.state.DoseLast == nil {
 				m.app.state.DoseLast = map[string]json.RawMessage{}
 			}
+			if m.app.state.DoseAnomaly == nil {
+				m.app.state.DoseAnomaly = map[string]json.RawMessage{}
+			}
 			switch kind {
 			case "state":
 				m.app.state.DoseState[name] = strings.ToUpper(payload)
 				changed = true
 			case "last":
 				m.app.state.DoseLast[name] = json.RawMessage(payload)
+				changed = true
+			case "anomaly":
+				m.app.state.DoseAnomaly[name] = json.RawMessage(payload)
 				changed = true
 			}
 			m.app.state.mu.Unlock()
@@ -276,6 +291,12 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	case "tds":
 		if v, err := strconv.ParseFloat(payload, 64); err == nil {
 			m.app.state.TDS = &v
+			changed = true
+		}
+	case "water/temperature":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.WaterTemp = &v
+			m.app.store.Record("water_temp", v, now)
 			changed = true
 		}
 	case "water/low/state":

@@ -874,6 +874,16 @@ section h2 {
   border-color: #ffb74d;
 }
 
+.sensor-card.danger {
+  background: #ffebee;
+  border-color: #e57373;
+}
+
+.dose-row.anomaly {
+  background: #ffebee;
+  border-color: #e57373;
+}
+
 .dose-grid {
   display: flex;
   flex-direction: column;

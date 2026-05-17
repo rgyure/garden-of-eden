@@ -85,6 +85,8 @@ function updateUI() {
   setVal('pcb-temp', cToF(state.pcb_temp));
   setVal('water-level', state.water_level);
   setVal('pump-current', state.pump_current);
+  setVal('water-temp-value', cToF(state.water_temp));
+  renderWaterTempWarning(state);
   renderNutrients(state);
   renderDosePumps(state);
 
@@ -124,6 +126,19 @@ function cToF(c) {
   return c * 9 / 5 + 32;
 }
 
+// Reservoir water-temperature warnings:
+// > 75°F dissolved oxygen drops sharply -> root rot risk.
+// > 80°F is a hard red zone for most hydroponic crops.
+function renderWaterTempWarning(state) {
+  const card = document.getElementById('water-temp-card');
+  if (!card) return;
+  const tF = cToF(state.water_temp);
+  card.classList.remove('warning', 'danger');
+  if (tF === null || tF === undefined) return;
+  if (tF >= 80) card.classList.add('danger');
+  else if (tF >= 75) card.classList.add('warning');
+}
+
 // --- Nutrients + dose pumps ---
 function renderNutrients(state) {
   setVal('ph-value', state.ph);
@@ -155,16 +170,30 @@ function renderDosePumps(state) {
   let anyReal = false;
 
   const pumpCfg = (schedule && schedule.dose_pumps) || {};
+  const anomalyMap = state.dose_anomaly || {};
   ['ph_down', 'nutrient_a', 'nutrient_b', 'cal_mag'].forEach(name => {
     const statusEl  = document.getElementById('dose-' + name + '-status');
     const lastEl    = document.getElementById('dose-' + name + '-last');
     const productEl = document.getElementById('dose-' + name + '-product');
+    const rowEl     = document.querySelector('.dose-row[data-pump="' + name + '"]');
     const status = doseState[name] || 'IDLE';
     statusEl.textContent = status.toLowerCase();
     statusEl.classList.toggle('running', status === 'RUNNING');
     if (productEl) {
       const product = pumpCfg[name] && pumpCfg[name].product;
       productEl.textContent = product || '';
+    }
+    // Flag the row if the most recent verification failed.
+    if (rowEl) {
+      let anomalyOk = true;
+      const raw = anomalyMap[name];
+      if (raw) {
+        try {
+          const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          anomalyOk = obj && obj.ok !== false;
+        } catch (e) { /* ignore */ }
+      }
+      rowEl.classList.toggle('anomaly', !anomalyOk);
     }
 
     const lastRaw = doseLast[name];

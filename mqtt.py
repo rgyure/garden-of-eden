@@ -7,7 +7,9 @@ import base64
 import json
 # import picamera
 # import cv2
+import time
 from time import sleep
+import config
 from config import USERNAME, PASSWORD, BROKER, PORT, KEEP_ALIVE_INTERVAL, BASE_TOPIC, IDENTIFIER, MODEL, VERSION, WATER_LOW_CM, UPPER_CAMERA_DEVICE, LOWER_CAMERA_DEVICE, UPPER_IMAGE_PATH, LOWER_IMAGE_PATH, CAMERA_RESOLUTION, IMAGE_INTERVAL_SECONDS, DISTANCE_SENSOR_ENABLED
 
 from gpiozero import Button  # Import gpiozero Button
@@ -22,6 +24,7 @@ from app.sensors.pump.pump_power import fetch_ina219_data
 from app.sensors.ph.ph import ph_sensor
 from app.sensors.ec.ec import ec_sensor
 from app.sensors.dose.dose_pump import make_pumps
+from app.sensors.water_temp.water_temp import water_temp_sensor
 from app.sensors.distance.distance import Distance, MeasurementError
 
 # Configure logging
@@ -512,6 +515,35 @@ def publish_ph(client):
         sleep(60)
 
 
+def publish_water_temp(client):
+    """Poll DS18B20 every 60s, publish water temp and forward to EZO sensors
+    for temperature-compensated pH/EC readings."""
+    last_compensation_update = 0
+    while True:
+        try:
+            celsius = water_temp_sensor.read()
+            client.publish(BASE_TOPIC + "/water/temperature", f"{celsius:.2f}")
+            logger.info(f"Publishing water temperature: {celsius:.2f}C")
+
+            # Push the value to the EZO circuits at most every 10 minutes.
+            # The EZO firmware stores T internally and applies it to every
+            # subsequent reading, so re-sending it every minute is wasteful.
+            now = time.time()
+            if not config.PH_STUB or not config.EC_STUB:
+                if now - last_compensation_update > 600:
+                    try:
+                        if hasattr(ph_sensor, "set_temperature_compensation"):
+                            ph_sensor.set_temperature_compensation(celsius)
+                        if hasattr(ec_sensor, "set_temperature_compensation"):
+                            ec_sensor.set_temperature_compensation(celsius)
+                        last_compensation_update = now
+                    except Exception as e:
+                        logger.warning(f"Failed to push temp compensation to EZO: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to read or publish water temperature: {e}")
+        sleep(60)
+
+
 def publish_ec(client):
     """Poll EC every 60s. Stub mode emits a slowly-varying value."""
     while True:
@@ -530,7 +562,11 @@ def publish_ec(client):
 
 
 def handle_dose_command(client, name, payload):
-    """Route gardyn/dose/<name>/command -> DosePump.dose_ml(payload)."""
+    """Route gardyn/dose/<name>/command -> DosePump.dose_ml(payload).
+
+    Also takes pH + EC snapshots before and 5 minutes after the dose; if the
+    expected delta doesn't show up, publishes an anomaly event so the operator
+    can suspect an empty bottle, kinked tube, or miscalibrated pump."""
     pump = dose_pumps.get(name)
     if pump is None:
         logger.warning(f"dose command for unknown pump '{name}'")
@@ -540,10 +576,76 @@ def handle_dose_command(client, name, payload):
     except (TypeError, ValueError):
         logger.warning(f"dose command for {name}: invalid payload {payload!r}")
         return
+
+    baseline = _read_nutrient_snapshot()
+
     client.publish(BASE_TOPIC + f"/dose/{name}/state", "RUNNING")
     result = pump.dose_ml(ml)
     client.publish(BASE_TOPIC + f"/dose/{name}/state", "IDLE")
     client.publish(BASE_TOPIC + f"/dose/{name}/last", json.dumps(result))
+
+    if result.get("ok"):
+        threading.Timer(
+            300,
+            verify_dose_effect,
+            args=(client, name, ml, baseline),
+        ).start()
+
+
+def _read_nutrient_snapshot():
+    snap = {"ph": None, "ec": None}
+    try:
+        snap["ph"] = float(ph_sensor.read())
+    except Exception:
+        pass
+    try:
+        ec_value = ec_sensor.read()
+        snap["ec"] = float(ec_value.get("ec")) if isinstance(ec_value, dict) else None
+    except Exception:
+        pass
+    return snap
+
+
+# Per-pump minimum expected delta after a single dose. Tune once real
+# concentrations are known; these defaults are conservative.
+MIN_PH_DROP    = 0.05     # pH units, for ph_down
+MIN_EC_RISE    = 0.02     # mS/cm, for nutrient_a / nutrient_b / cal_mag
+
+
+def verify_dose_effect(client, name, volume_ml, baseline):
+    """Re-read pH/EC and compare against the snapshot. Publish an anomaly if
+    no significant change is detected."""
+    after = _read_nutrient_snapshot()
+
+    if name == "ph_down":
+        before = baseline.get("ph")
+        nowval = after.get("ph")
+        delta = (before - nowval) if (before is not None and nowval is not None) else None
+        expected = MIN_PH_DROP
+        unit = "pH"
+    else:
+        before = baseline.get("ec")
+        nowval = after.get("ec")
+        delta = (nowval - before) if (before is not None and nowval is not None) else None
+        expected = MIN_EC_RISE
+        unit = "mS/cm"
+
+    anomaly = {
+        "name":     name,
+        "volume_ml": volume_ml,
+        "baseline": baseline,
+        "after":    after,
+        "delta":    delta,
+        "expected": expected,
+        "unit":     unit,
+        "ok":       delta is not None and delta >= expected,
+    }
+    if not anomaly["ok"]:
+        logger.warning(
+            f"Dose anomaly: {name} {volume_ml}mL produced delta={delta} {unit} "
+            f"(expected >= {expected}). Check bottle level / tube clog / calibration."
+        )
+        client.publish(BASE_TOPIC + f"/dose/{name}/anomaly", json.dumps(anomaly))
 
 
 def publish_pump_power(client):
@@ -663,6 +765,10 @@ if __name__ == "__main__":
     ec_thread = threading.Thread(target=publish_ec, args=(client,))
     ec_thread.daemon = True
     ec_thread.start()
+
+    water_temp_thread = threading.Thread(target=publish_water_temp, args=(client,))
+    water_temp_thread.daemon = True
+    water_temp_thread.start()
 
 
     publish_images_thread = threading.Thread(target=publish_images, args=(client,))
