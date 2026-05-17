@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Garden of Eden</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <div class="container">
@@ -118,6 +118,21 @@
       </div>
     </section>
 
+    <!-- Pod changes -->
+    <section>
+      <div class="section-header">
+        <h2>Pod changes</h2>
+        <div class="btn-group">
+          <button class="btn btn-sm" onclick="openCalibrationModal()">Calibrate</button>
+          <button class="btn btn-sm btn-primary" id="scan-btn" onclick="runPodScan()">Scan now</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="pod-events-summary" class="pod-events-summary">Not calibrated yet &mdash; click <strong>Calibrate</strong> to mark pod positions on each camera.</div>
+        <div id="pod-events-list"></div>
+      </div>
+    </section>
+
     <!-- Plants -->
     <section>
       <div class="section-header">
@@ -133,6 +148,26 @@
           <span class="pod-legend-dot flowering"></span>Flower
           <span class="pod-legend-dot harvest_ready"></span>Harvest
         </div>
+      </div>
+    </section>
+
+    <!-- Harvest analytics -->
+    <section>
+      <div class="section-header">
+        <h2>Harvest analytics</h2>
+        <span class="pod-stats" id="harvest-summary">--</span>
+      </div>
+      <div class="card">
+        <div class="stat-row">
+          <div class="stat"><span class="stat-label">Total harvested</span><span class="stat-value" id="stat-total-g">0 g</span></div>
+          <div class="stat"><span class="stat-label">Active plantings</span><span class="stat-value" id="stat-active">0</span></div>
+          <div class="stat"><span class="stat-label">Completed</span><span class="stat-value" id="stat-completed">0</span></div>
+          <div class="stat"><span class="stat-label">Success rate</span><span class="stat-value" id="stat-success">--</span></div>
+          <div class="stat"><span class="stat-label">Varieties grown</span><span class="stat-value" id="stat-varieties">0</span></div>
+        </div>
+        <canvas id="yield-chart" height="220"></canvas>
+        <p class="chart-empty hidden" id="yield-empty">No harvest data yet &mdash; log a harvest in any pod to see yields here.</p>
+        <div id="ready-soon"></div>
       </div>
     </section>
 
@@ -240,6 +275,46 @@
     </section>
   </div>
 
+  <datalist id="variety-options"></datalist>
+
+  <!-- Calibration modal -->
+  <div class="modal-backdrop hidden" id="calibration-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3>Calibrate pods <span id="calib-camera-label">— upper</span></h3>
+        <button class="modal-close" onclick="closeCalibrationModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="calib-toolbar">
+          <div class="btn-group">
+            <button class="btn btn-sm" id="calib-tab-upper" onclick="switchCalibCamera('upper')">Upper</button>
+            <button class="btn btn-sm" id="calib-tab-lower" onclick="switchCalibCamera('lower')">Lower</button>
+          </div>
+          <div class="calib-spacer"></div>
+          <label class="calib-radius-label">Radius
+            <input type="range" id="calib-radius" min="10" max="80" value="30" oninput="document.getElementById('calib-radius-val').textContent=this.value">
+            <span id="calib-radius-val">30</span>
+          </label>
+          <button class="btn btn-sm" onclick="undoCalibPoint()">Undo</button>
+          <button class="btn btn-sm" onclick="clearCalibPoints()">Clear</button>
+          <button class="btn btn-sm" onclick="captureBaseline()">Save as baseline</button>
+        </div>
+        <div class="calib-stage">
+          <img id="calib-image" alt="Camera frame">
+          <svg id="calib-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="calib-status">
+          <span id="calib-next-pod">Next: A1</span>
+          <span id="calib-progress">0 of 15 placed</span>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" onclick="saveCalibration()">Save calibration</button>
+          <button type="button" class="btn" onclick="closeCalibrationModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Pod editor modal -->
   <div class="modal-backdrop hidden" id="pod-modal">
     <div class="modal">
@@ -251,7 +326,7 @@
         <div id="pod-active-form" class="hidden">
           <h4 class="modal-section-title">Current planting</h4>
           <div class="form-row"><label for="edit-variety">Variety</label>
-            <input type="text" id="edit-variety" placeholder="e.g. Genovese Basil"></div>
+            <input type="text" id="edit-variety" list="variety-options" placeholder="e.g. Genovese Basil" onchange="applyVarietyDefaults('edit')"></div>
           <div class="form-row"><label for="edit-planted">Planted</label>
             <input type="date" id="edit-planted"></div>
           <div class="form-row"><label for="edit-days">Days to harvest</label>
@@ -266,11 +341,18 @@
             <button type="button" class="btn" onclick="endPlanting('removed')">Removed</button>
             <button type="button" class="btn" onclick="endPlanting('failed')">Failed</button>
           </div>
+          <h4 class="modal-section-title">Log harvest</h4>
+          <div class="form-row form-row-inline">
+            <input type="number" id="harvest-grams" min="0" step="0.1" placeholder="grams" class="harvest-grams-input">
+            <input type="text" id="harvest-notes" placeholder="notes (optional)" class="harvest-notes-input">
+            <button type="button" class="btn btn-sm btn-primary" onclick="logHarvest()">Add</button>
+          </div>
+          <div id="harvest-log-list" class="harvest-log-list"></div>
         </div>
         <div id="pod-empty-form" class="hidden">
           <h4 class="modal-section-title">Empty pod &mdash; add planting</h4>
           <div class="form-row"><label for="new-variety">Variety</label>
-            <input type="text" id="new-variety" placeholder="e.g. Cherry Tomato"></div>
+            <input type="text" id="new-variety" list="variety-options" placeholder="e.g. Cherry Tomato" onchange="applyVarietyDefaults('new')"></div>
           <div class="form-row"><label for="new-planted">Planted</label>
             <input type="date" id="new-planted"></div>
           <div class="form-row"><label for="new-days">Days to harvest</label>
@@ -290,6 +372,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

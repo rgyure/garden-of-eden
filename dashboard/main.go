@@ -24,11 +24,15 @@ type Config struct {
 	BaseTopic      string
 	Identifier     string
 	HTTPPort       int
-	SchedulePath   string
-	PodsPath       string
-	DataDir        string
-	UpperImagePath string
-	LowerImagePath string
+	SchedulePath       string
+	PodsPath           string
+	VarietiesPath      string
+	PodCalibrationPath string
+	PodBaselineDir     string
+	PodEventsPath      string
+	DataDir            string
+	UpperImagePath     string
+	LowerImagePath     string
 }
 
 type App struct {
@@ -60,10 +64,14 @@ func loadConfig() Config {
 		Identifier:     getEnv("MQTT_IDENTIFIER", "gardyn"),
 		HTTPPort:       httpPort,
 		SchedulePath:   getEnv("SCHEDULE_PATH", "schedule.yml"),
-		PodsPath:       getEnv("PODS_PATH", "pods.yml"),
-		DataDir:        getEnv("DASHBOARD_DATA_DIR", "data"),
-		UpperImagePath: getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
-		LowerImagePath: getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
+		PodsPath:           getEnv("PODS_PATH", "pods.yml"),
+		VarietiesPath:      getEnv("VARIETIES_PATH", "varieties.yml"),
+		PodCalibrationPath: getEnv("POD_CALIBRATION_PATH", "pod_calibration.yml"),
+		PodBaselineDir:     getEnv("POD_BASELINE_DIR", "pod_baselines"),
+		PodEventsPath:      getEnv("POD_EVENTS_PATH", "pod_events.jsonl"),
+		DataDir:            getEnv("DASHBOARD_DATA_DIR", "data"),
+		UpperImagePath:     getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
+		LowerImagePath:     getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
 	}
 }
 
@@ -97,6 +105,12 @@ func main() {
 	mux.HandleFunc("PUT /api/schedule", app.handleUpdateSchedule)
 	mux.HandleFunc("GET /api/plantings", app.handleGetPlantings)
 	mux.HandleFunc("PUT /api/plantings", app.handleUpdatePlantings)
+	mux.HandleFunc("GET /api/varieties", app.handleGetVarieties)
+	mux.HandleFunc("GET /api/pod-calibration", app.handleGetPodCalibration)
+	mux.HandleFunc("PUT /api/pod-calibration", app.handleUpdatePodCalibration)
+	mux.HandleFunc("POST /api/pod-baseline/{camera}", app.handleCaptureBaseline)
+	mux.HandleFunc("POST /api/pod-scan", app.handlePodScan)
+	mux.HandleFunc("GET /api/pod-events", app.handleGetPodEvents)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")

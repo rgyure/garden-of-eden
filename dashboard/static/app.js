@@ -1,8 +1,10 @@
 let state = {};
 let schedule = {};
 let inventory = { layout: { columns: 3, rows: 10 }, plantings: [] };
+let varieties = [];
 let activePodId = null;
 let chart = null;
+let harvestChart = null;
 let editing = false;
 
 const STAGE_PRESETS = {
@@ -26,9 +28,11 @@ function inferStage(pump) {
 document.addEventListener('DOMContentLoaded', () => {
   connectSSE();
   loadSchedule();
+  loadVarieties();
   loadInventory();
   loadHistory('24h');
   refreshCameras();
+  loadPodEvents();
 });
 
 // --- SSE ---
@@ -384,9 +388,160 @@ async function loadInventory() {
     inventory = await res.json();
     if (!inventory.plantings) inventory.plantings = [];
     renderPodGrid();
+    renderHarvestAnalytics();
   } catch (err) {
     console.error('Failed to load inventory:', err);
   }
+}
+
+// --- Variety library ---
+async function loadVarieties() {
+  try {
+    const res = await fetch('/api/varieties');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    varieties = data.varieties || [];
+    const list = document.getElementById('variety-options');
+    if (list) {
+      list.innerHTML = varieties
+        .map(v => `<option value="${escapeHtml(v.name)}">`)
+        .join('');
+    }
+  } catch (err) {
+    console.error('Failed to load varieties:', err);
+  }
+}
+
+function findVariety(name) {
+  if (!name) return null;
+  const target = name.trim().toLowerCase();
+  return varieties.find(v => v.name.toLowerCase() === target) || null;
+}
+
+// When a known variety is selected, pre-fill days_to_harvest if the user
+// hasn't already entered a value. Never overwrites a non-empty field.
+function applyVarietyDefaults(prefix) {
+  const varietyEl = document.getElementById(prefix + '-variety');
+  const daysEl = document.getElementById(prefix + '-days');
+  if (!varietyEl || !daysEl) return;
+  const match = findVariety(varietyEl.value);
+  if (!match) return;
+  if (!daysEl.value && match.days_to_harvest) {
+    daysEl.value = match.days_to_harvest;
+  }
+}
+
+// --- Harvest analytics ---
+function totalHarvestGrams(planting) {
+  if (!planting.harvest_log) return 0;
+  return planting.harvest_log.reduce((sum, h) => sum + (h.weight_g || 0), 0);
+}
+
+function renderHarvestAnalytics() {
+  const plantings = inventory.plantings || [];
+  const active = plantings.filter(p => !p.ended);
+  const completed = plantings.filter(p => p.ended);
+  const harvested = completed.filter(p => p.end_reason === 'harvested');
+
+  const totalGrams = plantings.reduce((sum, p) => sum + totalHarvestGrams(p), 0);
+  const varietyNames = new Set(plantings.map(p => p.variety));
+  const successRate = completed.length
+    ? Math.round((harvested.length / completed.length) * 100) + '%'
+    : '--';
+
+  setText('stat-total-g', totalGrams.toFixed(0) + ' g');
+  setText('stat-active', active.length);
+  setText('stat-completed', completed.length);
+  setText('stat-success', successRate);
+  setText('stat-varieties', varietyNames.size);
+  setText('harvest-summary', `${plantings.length} planting${plantings.length === 1 ? '' : 's'} on record`);
+
+  renderYieldChart(plantings);
+  renderReadySoon(active);
+}
+
+function renderYieldChart(plantings) {
+  const canvas = document.getElementById('yield-chart');
+  const emptyMsg = document.getElementById('yield-empty');
+  if (!canvas || !emptyMsg) return;
+
+  const yieldByVariety = {};
+  plantings.forEach(p => {
+    const g = totalHarvestGrams(p);
+    if (g > 0) yieldByVariety[p.variety] = (yieldByVariety[p.variety] || 0) + g;
+  });
+
+  const entries = Object.entries(yieldByVariety).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    canvas.classList.add('hidden');
+    emptyMsg.classList.remove('hidden');
+    if (harvestChart) { harvestChart.destroy(); harvestChart = null; }
+    return;
+  }
+  canvas.classList.remove('hidden');
+  emptyMsg.classList.add('hidden');
+
+  const labels = entries.map(([v]) => v);
+  const data = entries.map(([, g]) => g);
+
+  if (harvestChart) harvestChart.destroy();
+  harvestChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Grams harvested',
+        data,
+        backgroundColor: '#4caf50',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { title: { display: true, text: 'Grams' }, grid: { color: '#f0f0f0' } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderReadySoon(activePlantings) {
+  const el = document.getElementById('ready-soon');
+  if (!el) return;
+
+  const upcoming = activePlantings
+    .filter(p => p.days_to_harvest)
+    .map(p => {
+      const days = daysSince(p.planted);
+      const remaining = p.days_to_harvest - days;
+      return { planting: p, remaining };
+    })
+    .filter(x => x.remaining <= 14)
+    .sort((a, b) => a.remaining - b.remaining);
+
+  if (!upcoming.length) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const rows = upcoming.map(({ planting, remaining }) => {
+    const label = remaining <= 0
+      ? `ready (${Math.abs(remaining)}d past target)`
+      : `${remaining}d to go`;
+    const cls = remaining <= 0 ? 'ready-now' : 'ready-soon';
+    return `<div class="ready-row ${cls}"><span class="ready-pod">${planting.pod}</span><span class="ready-variety">${escapeHtml(planting.variety)}</span><span class="ready-eta">${label}</span></div>`;
+  }).join('');
+
+  el.innerHTML = '<h4 class="modal-section-title">Ready soon</h4>' + rows;
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
 }
 
 function renderPodGrid() {
@@ -457,6 +612,9 @@ function openPodModal(podId) {
     document.getElementById('edit-days').value = planting.days_to_harvest || '';
     document.getElementById('edit-source').value = planting.seed_source || '';
     document.getElementById('edit-notes').value = planting.notes || '';
+    document.getElementById('harvest-grams').value = '';
+    document.getElementById('harvest-notes').value = '';
+    renderHarvestLogForActive(planting);
   } else {
     activeForm.classList.add('hidden');
     emptyForm.classList.remove('hidden');
@@ -562,6 +720,52 @@ async function endPlanting(reason) {
     delete planting.end_reason;
     if (before.ended) planting.ended = before.ended;
     if (before.end_reason) planting.end_reason = before.end_reason;
+  }
+}
+
+function renderHarvestLogForActive(planting) {
+  const el = document.getElementById('harvest-log-list');
+  if (!el) return;
+  const log = planting.harvest_log || [];
+  if (!log.length) { el.innerHTML = ''; return; }
+  const rows = log
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map(h => {
+      const grams = h.weight_g ? `${h.weight_g.toFixed(1)} g` : '';
+      const notes = h.notes ? ` — ${escapeHtml(h.notes)}` : '';
+      return `<div class="history-row"><span>${h.date}</span><span>${grams}${notes}</span></div>`;
+    })
+    .join('');
+  el.innerHTML = rows;
+}
+
+async function logHarvest() {
+  const planting = activePlantingFor(activePodId);
+  if (!planting) return;
+  const gramsRaw = document.getElementById('harvest-grams').value.trim();
+  if (!gramsRaw) { alert('Enter a weight in grams.'); return; }
+  const grams = parseFloat(gramsRaw);
+  if (!isFinite(grams) || grams < 0) { alert('Weight must be a positive number.'); return; }
+
+  const entry = {
+    date: new Date().toISOString().slice(0, 10),
+    weight_g: grams
+  };
+  const notes = document.getElementById('harvest-notes').value.trim();
+  if (notes) entry.notes = notes;
+
+  const before = planting.harvest_log ? planting.harvest_log.slice() : null;
+  planting.harvest_log = (planting.harvest_log || []).concat(entry);
+
+  if (await saveInventory()) {
+    document.getElementById('harvest-grams').value = '';
+    document.getElementById('harvest-notes').value = '';
+    renderHarvestLogForActive(planting);
+    renderHarvestAnalytics();
+  } else {
+    if (before === null) delete planting.harvest_log;
+    else planting.harvest_log = before;
   }
 }
 
@@ -682,4 +886,218 @@ function renderChart(readings) {
       }
     }
   });
+}
+
+// --- Pod calibration + detection ---
+// Upper camera covers the top 15 pods (rows 1-5); lower covers rows 6-10.
+const CALIB_POD_ORDER = {
+  upper: ['A1','B1','C1','A2','B2','C2','A3','B3','C3','A4','B4','C4','A5','B5','C5'],
+  lower: ['A6','B6','C6','A7','B7','C7','A8','B8','C8','A9','B9','C9','A10','B10','C10']
+};
+
+let calibCamera = 'upper';
+let calibration = { upper: { positions: [] }, lower: { positions: [] } };
+let calibPoints = []; // working copy for the active camera
+let calibImgSize = { width: 0, height: 0 };
+
+function openCalibrationModal() {
+  loadCalibration().then(() => {
+    switchCalibCamera('upper');
+    document.getElementById('calibration-modal').classList.remove('hidden');
+  });
+}
+
+function closeCalibrationModal() {
+  document.getElementById('calibration-modal').classList.add('hidden');
+}
+
+async function loadCalibration() {
+  try {
+    const res = await fetch('/api/pod-calibration');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    calibration = {
+      upper: data.upper || { positions: [] },
+      lower: data.lower || { positions: [] }
+    };
+    if (!calibration.upper.positions) calibration.upper.positions = [];
+    if (!calibration.lower.positions) calibration.lower.positions = [];
+  } catch (err) {
+    console.error('Failed to load calibration:', err);
+  }
+}
+
+function switchCalibCamera(cam) {
+  // Save the working copy back to the right side before switching.
+  if (calibPoints.length || calibImgSize.width) {
+    calibration[calibCamera].positions = calibPoints.slice();
+    if (calibImgSize.width) {
+      calibration[calibCamera].width = calibImgSize.width;
+      calibration[calibCamera].height = calibImgSize.height;
+    }
+  }
+  calibCamera = cam;
+  calibPoints = (calibration[cam].positions || []).slice();
+  document.getElementById('calib-camera-label').textContent = '— ' + cam;
+  document.getElementById('calib-tab-upper').classList.toggle('btn-primary', cam === 'upper');
+  document.getElementById('calib-tab-lower').classList.toggle('btn-primary', cam === 'lower');
+
+  const img = document.getElementById('calib-image');
+  img.src = `/api/camera/${cam}?t=${Date.now()}`;
+  img.onload = () => {
+    calibImgSize = { width: img.naturalWidth, height: img.naturalHeight };
+    setupCalibOverlay();
+    redrawCalibPoints();
+    updateCalibStatus();
+  };
+  img.onclick = onCalibClick;
+}
+
+function setupCalibOverlay() {
+  const svg = document.getElementById('calib-overlay');
+  svg.setAttribute('viewBox', `0 0 ${calibImgSize.width} ${calibImgSize.height}`);
+  svg.onclick = onCalibClick;
+}
+
+function onCalibClick(ev) {
+  const img = document.getElementById('calib-image');
+  const rect = img.getBoundingClientRect();
+  const scaleX = calibImgSize.width / rect.width;
+  const scaleY = calibImgSize.height / rect.height;
+  const x = Math.round((ev.clientX - rect.left) * scaleX);
+  const y = Math.round((ev.clientY - rect.top) * scaleY);
+  const r = parseInt(document.getElementById('calib-radius').value, 10);
+
+  const order = CALIB_POD_ORDER[calibCamera];
+  const nextIdx = calibPoints.length;
+  if (nextIdx >= order.length) return; // all placed
+
+  calibPoints.push({ pod: order[nextIdx], x, y, radius: r });
+  redrawCalibPoints();
+  updateCalibStatus();
+}
+
+function redrawCalibPoints() {
+  const svg = document.getElementById('calib-overlay');
+  svg.innerHTML = calibPoints.map(p => `
+    <circle cx="${p.x}" cy="${p.y}" r="${p.radius}"
+            fill="rgba(76,175,80,0.25)" stroke="#2e7d32" stroke-width="3"/>
+    <text x="${p.x}" y="${p.y + 6}" text-anchor="middle"
+          font-size="${Math.max(14, p.radius * 0.6)}" fill="#1b5e20" font-weight="600">${p.pod}</text>
+  `).join('');
+}
+
+function updateCalibStatus() {
+  const order = CALIB_POD_ORDER[calibCamera];
+  const placed = calibPoints.length;
+  const total = order.length;
+  document.getElementById('calib-progress').textContent = `${placed} of ${total} placed`;
+  document.getElementById('calib-next-pod').textContent = placed < total ? `Next: ${order[placed]}` : 'All pods placed';
+}
+
+function undoCalibPoint() {
+  calibPoints.pop();
+  redrawCalibPoints();
+  updateCalibStatus();
+}
+
+function clearCalibPoints() {
+  if (!confirm('Clear all placed pods for ' + calibCamera + '?')) return;
+  calibPoints = [];
+  redrawCalibPoints();
+  updateCalibStatus();
+}
+
+async function saveCalibration() {
+  // Persist the working copy back to the active camera.
+  calibration[calibCamera].positions = calibPoints.slice();
+  if (calibImgSize.width) {
+    calibration[calibCamera].width = calibImgSize.width;
+    calibration[calibCamera].height = calibImgSize.height;
+  }
+  try {
+    const res = await fetch('/api/pod-calibration', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(calibration)
+    });
+    if (!res.ok) { alert('Failed to save: ' + (await res.text())); return; }
+    closeCalibrationModal();
+    loadPodEvents();
+  } catch (err) {
+    alert('Failed to save calibration');
+  }
+}
+
+async function captureBaseline() {
+  if (!confirm(`Snapshot the current ${calibCamera} frame as the baseline? Future scans compare against this image.`)) return;
+  try {
+    const res = await fetch(`/api/pod-baseline/${calibCamera}`, { method: 'POST' });
+    if (!res.ok) { alert('Failed to capture baseline: ' + (await res.text())); return; }
+    alert(`${calibCamera} baseline saved.`);
+  } catch (err) {
+    alert('Failed to capture baseline');
+  }
+}
+
+async function runPodScan() {
+  const btn = document.getElementById('scan-btn');
+  btn.disabled = true;
+  btn.textContent = 'Scanning...';
+  try {
+    const res = await fetch('/api/pod-scan', { method: 'POST' });
+    const data = await res.json();
+    renderScanResults(data.results || []);
+    loadPodEvents();
+  } catch (err) {
+    alert('Scan failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan now';
+  }
+}
+
+function renderScanResults(results) {
+  const summary = document.getElementById('pod-events-summary');
+  const errors = results.filter(r => r.error);
+  if (errors.length) {
+    summary.innerHTML = errors.map(r => `<div class="scan-error">${escapeHtml(r.camera)}: ${escapeHtml(r.error)}</div>`).join('');
+    return;
+  }
+  const changed = results.flatMap(r => r.events.filter(e => e.changed));
+  summary.textContent = changed.length
+    ? `Last scan: ${changed.length} pod${changed.length === 1 ? '' : 's'} changed.`
+    : 'Last scan: no changes detected.';
+}
+
+async function loadPodEvents() {
+  try {
+    const res = await fetch('/api/pod-events');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderPodEvents(data.events || []);
+  } catch (err) {
+    console.error('Failed to load pod events:', err);
+  }
+}
+
+function renderPodEvents(events) {
+  const el = document.getElementById('pod-events-list');
+  const summary = document.getElementById('pod-events-summary');
+  if (!events.length) {
+    el.innerHTML = '';
+    if (summary.textContent.startsWith('Not calibrated')) return;
+    return;
+  }
+  const rows = events.slice(0, 20).map(e => {
+    const ts = new Date(e.date);
+    const when = isFinite(ts) ? ts.toLocaleString() : e.date;
+    return `<div class="event-row">
+      <span class="event-pod">${e.pod}</span>
+      <span class="event-camera">${e.camera}</span>
+      <span class="event-when">${when}</span>
+      <span class="event-mag">Δ ${e.magnitude.toFixed(1)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = '<h4 class="modal-section-title">Recent change events</h4>' + rows;
 }
