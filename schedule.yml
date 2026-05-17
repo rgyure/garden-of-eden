@@ -36,14 +36,17 @@ nutrients:
 dose_pumps:
   ph_down:
     enabled: true
+    product: "pH Down (food-grade phosphoric acid, 25%)"
     flow_rate_ml_per_sec: 1.67
     max_dose_ml: 10
   nutrient_a:
     enabled: true
+    product: "General Hydroponics 718125 Flora Micro"
     flow_rate_ml_per_sec: 1.67
     max_dose_ml: 20
   nutrient_b:
     enabled: true
+    product: "General Hydroponics FloraBloom 0-5-4"
     flow_rate_ml_per_sec: 1.67
     max_dose_ml: 20
   # Cal-mag is dosed manually or on a weekly schedule, not by reactive
@@ -51,5 +54,6 @@ dose_pumps:
   # the dashboard is the primary way to use it.
   cal_mag:
     enabled: true
+    product: "General Hydroponics CALiMAGic"
     flow_rate_ml_per_sec: 1.67
     max_dose_ml: 15

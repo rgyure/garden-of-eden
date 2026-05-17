@@ -154,12 +154,18 @@ function renderDosePumps(state) {
   const doseLast  = state.dose_last  || {};
   let anyReal = false;
 
+  const pumpCfg = (schedule && schedule.dose_pumps) || {};
   ['ph_down', 'nutrient_a', 'nutrient_b', 'cal_mag'].forEach(name => {
-    const statusEl = document.getElementById('dose-' + name + '-status');
-    const lastEl   = document.getElementById('dose-' + name + '-last');
+    const statusEl  = document.getElementById('dose-' + name + '-status');
+    const lastEl    = document.getElementById('dose-' + name + '-last');
+    const productEl = document.getElementById('dose-' + name + '-product');
     const status = doseState[name] || 'IDLE';
     statusEl.textContent = status.toLowerCase();
     statusEl.classList.toggle('running', status === 'RUNNING');
+    if (productEl) {
+      const product = pumpCfg[name] && pumpCfg[name].product;
+      productEl.textContent = product || '';
+    }
 
     const lastRaw = doseLast[name];
     if (lastRaw) {
@@ -295,6 +301,10 @@ async function loadSchedule() {
     const res = await fetch('/api/schedule');
     schedule = await res.json();
     renderSchedule();
+    // Re-render dose pumps so the product names from schedule.yml appear
+    // immediately rather than on the next SSE tick.
+    renderDosePumps(state);
+    renderNutrients(state);
   } catch (err) {
     console.error('Failed to load schedule:', err);
   }

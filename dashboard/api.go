@@ -13,10 +13,40 @@ import (
 
 // Schedule mirrors the structure of schedule.yml.
 type Schedule struct {
-	Location  LocationConfig  `yaml:"location" json:"location"`
-	Light     LightConfig     `yaml:"light" json:"light"`
-	Pump      PumpConfig      `yaml:"pump" json:"pump"`
-	Scheduler SchedulerConfig `yaml:"scheduler" json:"scheduler"`
+	Location  LocationConfig             `yaml:"location" json:"location"`
+	Light     LightConfig                `yaml:"light" json:"light"`
+	Pump      PumpConfig                 `yaml:"pump" json:"pump"`
+	Scheduler SchedulerConfig            `yaml:"scheduler" json:"scheduler"`
+	Nutrients *NutrientsConfig           `yaml:"nutrients,omitempty" json:"nutrients,omitempty"`
+	DosePumps map[string]DosePumpConfig  `yaml:"dose_pumps,omitempty" json:"dose_pumps,omitempty"`
+}
+
+type NutrientsConfig struct {
+	Enabled bool             `yaml:"enabled" json:"enabled"`
+	PH      *PHTargets       `yaml:"ph,omitempty" json:"ph,omitempty"`
+	EC      *ECTargets       `yaml:"ec,omitempty" json:"ec,omitempty"`
+}
+
+type PHTargets struct {
+	TargetMin       float64 `yaml:"target_min" json:"target_min"`
+	TargetMax       float64 `yaml:"target_max" json:"target_max"`
+	DoseML          float64 `yaml:"dose_ml" json:"dose_ml"`
+	CooldownMinutes int     `yaml:"cooldown_minutes" json:"cooldown_minutes"`
+}
+
+type ECTargets struct {
+	TargetMin       float64 `yaml:"target_min" json:"target_min"`
+	TargetMax       float64 `yaml:"target_max" json:"target_max"`
+	DoseAML         float64 `yaml:"dose_a_ml" json:"dose_a_ml"`
+	DoseBML         float64 `yaml:"dose_b_ml" json:"dose_b_ml"`
+	CooldownMinutes int     `yaml:"cooldown_minutes" json:"cooldown_minutes"`
+}
+
+type DosePumpConfig struct {
+	Enabled          bool    `yaml:"enabled" json:"enabled"`
+	Product          string  `yaml:"product,omitempty" json:"product,omitempty"`
+	FlowRateMLPerSec float64 `yaml:"flow_rate_ml_per_sec" json:"flow_rate_ml_per_sec"`
+	MaxDoseML        float64 `yaml:"max_dose_ml" json:"max_dose_ml"`
 }
 
 type LocationConfig struct {

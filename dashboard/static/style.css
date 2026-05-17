@@ -901,6 +901,13 @@ section h2 {
   color: #333;
 }
 
+.dose-product {
+  font-size: 0.74rem;
+  color: #888;
+  font-style: italic;
+  margin-top: 2px;
+}
+
 .dose-status {
   font-size: 0.78rem;
   color: #888;
