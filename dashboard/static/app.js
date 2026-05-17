@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPodEvents();
   loadReservoir();
   loadAIAnalysis();
+  refreshCalibrationStatus();
 });
 
 // --- SSE ---
@@ -1148,10 +1149,29 @@ async function saveCalibration() {
     });
     if (!res.ok) { alert('Failed to save: ' + (await res.text())); return; }
     closeCalibrationModal();
+    refreshCalibrationStatus();
     loadPodEvents();
   } catch (err) {
     alert('Failed to save calibration');
   }
+}
+
+// Show a clear status in the Pod changes section based on saved calibration.
+// Replaces the "Not calibrated yet" placeholder once positions exist.
+function refreshCalibrationStatus() {
+  fetch('/api/pod-calibration').then(r => r.ok ? r.json() : null).then(data => {
+    if (!data) return;
+    const summary = document.getElementById('pod-events-summary');
+    if (!summary) return;
+    const upper = (data.upper && data.upper.positions) || [];
+    const lower = (data.lower && data.lower.positions) || [];
+    const total = upper.length + lower.length;
+    if (total === 0) {
+      summary.innerHTML = 'Not calibrated yet — click <strong>Calibrate</strong> to mark pod positions on each camera.';
+    } else {
+      summary.textContent = `Calibrated: ${upper.length} upper / ${lower.length} lower pods. Ready to scan.`;
+    }
+  }).catch(() => {});
 }
 
 async function captureBaseline() {
@@ -1353,6 +1373,11 @@ function renderAIAnalysis(result, enabled) {
   const recEl = document.getElementById('ai-recommendations');
   const issuesEl = document.getElementById('ai-issues');
   const metaEl = document.getElementById('ai-meta');
+  const sectionsEl = document.getElementById('ai-sections');
+  const plantingsEl = document.getElementById('ai-plantings');
+  const planEl = document.getElementById('ai-plan');
+  const riskEl = document.getElementById('ai-risk');
+  const discEl = document.getElementById('ai-discrepancies');
 
   if (!enabled) {
     statusEl.textContent = 'Disabled — set AI_ANALYSIS_ENABLED + ANTHROPIC_API_KEY';
@@ -1380,11 +1405,107 @@ function renderAIAnalysis(result, enabled) {
   const h = (result.overall_health || 'unknown').toLowerCase();
   healthEl.textContent = h;
   healthEl.className = 'ai-health-badge ' + h;
-  summaryEl.textContent = result.summary || '';
 
+  // Prefer executive_summary from v2 prompt; fall back to v1 summary.
+  summaryEl.textContent = result.executive_summary || result.summary || '';
+
+  // Recommendations
   const recs = (result.recommendations || []).map(r => `<li>${escapeHtml(r)}</li>`).join('');
-  recEl.innerHTML = recs ? '<h4 class="modal-section-title">Recommendations</h4><ul class="ai-list">' + recs + '</ul>' : '';
+  recEl.innerHTML = recs ? '<h4 class="modal-section-title">Top recommendations</h4><ul class="ai-list">' + recs + '</ul>' : '';
 
+  // Inventory discrepancies block: prominent if any.
+  if (discEl) {
+    const discs = (result.inventory_discrepancies || []);
+    if (discs.length) {
+      discEl.innerHTML = '<h4 class="modal-section-title">Inventory vs. photos</h4>' +
+        discs.map(d => `<div class="ai-discrepancy ${escapeHtml(d.type || '')}">
+          <strong>${escapeHtml(d.pod || '?')}</strong>
+          <span class="ai-disc-type">${escapeHtml((d.type || '').replace(/_/g, ' '))}</span>
+          <span>${escapeHtml(d.description || '')}</span>
+        </div>`).join('');
+    } else {
+      discEl.innerHTML = '';
+    }
+  }
+
+  // Multi-section narrative.
+  if (sectionsEl) {
+    const sections = [
+      ['Canopy',         result.canopy_assessment],
+      ['Root zone',      result.root_zone_assessment],
+      ['Environment',    result.environmental_assessment],
+      ['Harvest outlook', result.harvest_outlook],
+    ].filter(([_, text]) => text && text.trim());
+    sectionsEl.innerHTML = sections.map(([title, text]) =>
+      `<div class="ai-section">
+        <h5 class="ai-section-title">${escapeHtml(title)}</h5>
+        <p>${escapeHtml(text)}</p>
+      </div>`
+    ).join('');
+  }
+
+  // Per-planting cards.
+  if (plantingsEl) {
+    const planting = result.per_planting || [];
+    if (planting.length) {
+      plantingsEl.innerHTML = '<h4 class="modal-section-title">Per-planting assessment</h4>' +
+        '<div class="ai-planting-grid">' +
+        planting.map(p => {
+          const yield_ = p.yield_estimate_g ? `<span class="ai-tag">est. ${p.yield_estimate_g}g</span>` : '';
+          const harvest = p.projected_harvest_date ? `<span class="ai-tag">harvest ${escapeHtml(p.projected_harvest_date)}</span>` : '';
+          const stage = p.growth_stage ? `<span class="ai-tag stage-${escapeHtml(p.growth_stage)}">${escapeHtml(p.growth_stage)}</span>` : '';
+          const actions = (p.actions_today || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+          const actionsBlock = actions ? `<div class="ai-actions"><strong>Today:</strong><ul>${actions}</ul></div>` : '';
+          return `<div class="ai-planting-card">
+            <div class="ai-planting-header">
+              <span class="event-pod">${escapeHtml(p.pod || '?')}</span>
+              <span class="ai-planting-variety">${escapeHtml(p.variety || '')}</span>
+              <span class="ai-planting-days">${p.days_planted || 0}d</span>
+            </div>
+            <div class="ai-planting-tags">${stage}${harvest}${yield_}</div>
+            <p class="ai-planting-assessment">${escapeHtml(p.assessment || '')}</p>
+            ${actionsBlock}
+          </div>`;
+        }).join('') +
+        '</div>';
+    } else {
+      plantingsEl.innerHTML = '';
+    }
+  }
+
+  // 7-day plan.
+  if (planEl) {
+    const plan = result.seven_day_plan || [];
+    if (plan.length) {
+      planEl.innerHTML = '<h4 class="modal-section-title">7-day action plan</h4>' +
+        plan.map(d => `<div class="ai-day">
+          <strong class="ai-day-name">${escapeHtml(d.day || '')}</strong>
+          <ul>${(d.actions || []).map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+        </div>`).join('');
+    } else {
+      planEl.innerHTML = '';
+    }
+  }
+
+  // Risk forecast.
+  if (riskEl) {
+    const risks = result.risk_forecast || [];
+    if (risks.length) {
+      riskEl.innerHTML = '<h4 class="modal-section-title">Risk forecast</h4>' +
+        risks.map(r => `<div class="ai-risk ${escapeHtml((r.likelihood || '').toLowerCase())}">
+          <div class="ai-risk-header">
+            <strong>${escapeHtml(r.risk || '')}</strong>
+            <span class="ai-risk-likelihood">${escapeHtml(r.likelihood || '')}</span>
+          </div>
+          <div class="ai-risk-rationale">${escapeHtml(r.rationale || '')}</div>
+          <div class="ai-risk-mitigation"><strong>Mitigation:</strong> ${escapeHtml(r.mitigation || '')}</div>
+        </div>`).join('');
+    } else {
+      riskEl.innerHTML = '';
+    }
+  }
+
+  // Issues list.
   const issues = (result.issues || []).map(i => {
     const pod = i.pod ? `<span class="event-pod">${escapeHtml(i.pod)}</span>` : '<span class="event-pod">—</span>';
     return `<div class="event-row ai-issue ${escapeHtml(i.severity || 'info')}">
@@ -1395,6 +1516,7 @@ function renderAIAnalysis(result, enabled) {
   }).join('');
   issuesEl.innerHTML = issues ? '<h4 class="modal-section-title">Issues</h4>' + issues : '';
 
+  // Meta footer.
   const harvestParts = [];
   if (result.harvest_ready && result.harvest_ready.length) {
     harvestParts.push(`<strong>Harvest ready:</strong> ${result.harvest_ready.map(escapeHtml).join(', ')}`);
