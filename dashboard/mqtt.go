@@ -24,6 +24,9 @@ type State struct {
 	Temperature     *float64 `json:"temperature"`
 	Humidity        *float64 `json:"humidity"`
 	PCBTemp         *float64 `json:"pcb_temp"`
+	PumpCurrent     *float64 `json:"pump_current"`
+	PumpVoltage     *float64 `json:"pump_voltage"`
+	PumpPower       *float64 `json:"pump_power"`
 	WaterLevel      *float64 `json:"water_level"`
 	WaterLowState   string   `json:"water_low_state"`
 	WaterLowCM      *float64 `json:"water_low_cm"`
@@ -192,6 +195,22 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 		if v, err := strconv.ParseFloat(payload, 64); err == nil {
 			m.app.state.WaterLevel = &v
 			m.app.store.Record("water_level", v, now)
+			changed = true
+		}
+	case "pump/current":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.PumpCurrent = &v
+			m.app.store.Record("pump_current", v, now)
+			changed = true
+		}
+	case "pump/voltage":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.PumpVoltage = &v
+			changed = true
+		}
+	case "pump/power":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.PumpPower = &v
 			changed = true
 		}
 	case "water/low/state":

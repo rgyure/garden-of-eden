@@ -18,6 +18,7 @@ from app.sensors.pump.pump import Pump
 from app.sensors.pcb_temp.pcb_temp import get_pcb_temperature
 from app.sensors.temperature.temperature import temperature_sensor
 from app.sensors.humidity.humidity import humidity_sensor
+from app.sensors.pump.pump_power import fetch_ina219_data
 from app.sensors.distance.distance import Distance, MeasurementError
 
 # Configure logging
@@ -482,6 +483,38 @@ def publish_humidity(client):
             logger.error(f"Failed to read or publish ambient humidity: {e}")
         sleep(30*60)  # Publish frequency, every x seconds
 
+def publish_pump_power(client):
+    """Poll INA219 fast (15s) while reads succeed so the chart can resolve
+    short pump-on windows. On persistent failures back off to 5 min and log
+    only once per failure run, so a missing/dead INA219 doesn't flood the log.
+    """
+    fast_interval = 15
+    slow_interval = 5 * 60
+    failures = 0
+    while True:
+        try:
+            data = fetch_ina219_data()
+            err = data.get("error") if isinstance(data, dict) else "unknown"
+            if err:
+                raise RuntimeError(err)
+            current_ma = data.get("BusCurrent")
+            voltage_v  = data.get("BusVoltage")
+            power_mw   = data.get("Power")
+            if current_ma is not None:
+                client.publish(BASE_TOPIC + "/pump/current", f"{current_ma:.2f}")
+            if voltage_v is not None:
+                client.publish(BASE_TOPIC + "/pump/voltage", f"{voltage_v:.2f}")
+            if power_mw is not None:
+                client.publish(BASE_TOPIC + "/pump/power",   f"{power_mw:.2f}")
+            logger.info(f"Publishing pump power: {current_ma:.1f}mA {voltage_v:.2f}V {power_mw:.1f}mW")
+            failures = 0
+            sleep(fast_interval)
+        except Exception as e:
+            if failures == 0:
+                logger.warning(f"Pump power read failing (will retry every {slow_interval}s): {e}")
+            failures += 1
+            sleep(slow_interval)
+
 def publish_water_level(client):
     if not DISTANCE_SENSOR_ENABLED:
         return
@@ -555,6 +588,10 @@ if __name__ == "__main__":
     water_level_thread = threading.Thread(target=publish_water_level, args=(client,))
     water_level_thread.daemon = True
     water_level_thread.start()
+
+    pump_power_thread = threading.Thread(target=publish_pump_power, args=(client,))
+    pump_power_thread.daemon = True
+    pump_power_thread.start()
 
 
     publish_images_thread = threading.Thread(target=publish_images, args=(client,))

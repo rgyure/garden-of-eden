@@ -84,6 +84,7 @@ function updateUI() {
   setVal('humidity', state.humidity);
   setVal('pcb-temp', cToF(state.pcb_temp));
   setVal('water-level', state.water_level);
+  setVal('pump-current', state.pump_current);
 
   // Overrides
   const lightOverride = document.getElementById('light-override');
@@ -829,7 +830,8 @@ function renderChart(readings) {
     temperature:  { label: 'Temperature',  color: '#4caf50', yAxisID: 'y' },
     pcb_temp:     { label: 'PCB Temp',     color: '#ff9800', yAxisID: 'y' },
     humidity:     { label: 'Humidity',      color: '#2196f3', yAxisID: 'y1' },
-    water_level:  { label: 'Water Level',  color: '#00bcd4', yAxisID: 'y' }
+    water_level:  { label: 'Water Level',  color: '#00bcd4', yAxisID: 'y' },
+    pump_current: { label: 'Pump Current', color: '#9c27b0', yAxisID: 'y2' }
   };
 
   for (const [sensor, cfg] of Object.entries(sensorConfig)) {
@@ -879,6 +881,13 @@ function renderChart(readings) {
           grid: { drawOnChartArea: false },
           min: 0,
           max: 100
+        },
+        y2: {
+          position: 'right',
+          offset: true,
+          title: { display: true, text: 'Pump current (mA)' },
+          ticks: { font: { size: 11 } },
+          grid: { drawOnChartArea: false }
         }
       },
       plugins: {
