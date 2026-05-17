@@ -32,6 +32,7 @@ class NutrientController:
             "ph_down":    0.0,
             "nutrient_a": 0.0,
             "nutrient_b": 0.0,
+            "cal_mag":    0.0,
         }
 
     def update_ph(self, ph: float):

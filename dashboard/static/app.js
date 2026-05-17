@@ -154,7 +154,7 @@ function renderDosePumps(state) {
   const doseLast  = state.dose_last  || {};
   let anyReal = false;
 
-  ['ph_down', 'nutrient_a', 'nutrient_b'].forEach(name => {
+  ['ph_down', 'nutrient_a', 'nutrient_b', 'cal_mag'].forEach(name => {
     const statusEl = document.getElementById('dose-' + name + '-status');
     const lastEl   = document.getElementById('dose-' + name + '-last');
     const status = doseState[name] || 'IDLE';

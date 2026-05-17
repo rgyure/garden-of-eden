@@ -46,3 +46,10 @@ dose_pumps:
     enabled: true
     flow_rate_ml_per_sec: 1.67
     max_dose_ml: 20
+  # Cal-mag is dosed manually or on a weekly schedule, not by reactive
+  # setpoint control. Reconciler ignores this pump; the Dose button on
+  # the dashboard is the primary way to use it.
+  cal_mag:
+    enabled: true
+    flow_rate_ml_per_sec: 1.67
+    max_dose_ml: 15

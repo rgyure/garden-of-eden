@@ -117,11 +117,12 @@ class DosePump:
 
 
 # Default GPIO assignments using free pins on the Pi. Verify these don't
-# conflict when wiring the DRV8833.
+# conflict when wiring the DRV8833 (two boards = four motor channels total).
 DEFAULT_PUMPS = {
     "ph_down":     {"forward_pin": 26, "reverse_pin": 19, "flow_rate_ml_per_sec": 1.67},
     "nutrient_a":  {"forward_pin": 21, "reverse_pin": 20, "flow_rate_ml_per_sec": 1.67},
     "nutrient_b":  {"forward_pin": 16, "reverse_pin": 12, "flow_rate_ml_per_sec": 1.67},
+    "cal_mag":     {"forward_pin": 6,  "reverse_pin": 5,  "flow_rate_ml_per_sec": 1.67},
 }
 
 

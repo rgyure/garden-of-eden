@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Garden of Eden</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <div class="container">
@@ -153,6 +153,18 @@
               <button class="btn btn-sm btn-primary" onclick="doseManual('nutrient_b')">Dose</button>
             </div>
             <span class="dose-last" id="dose-nutrient_b-last"></span>
+          </div>
+          <div class="dose-row" data-pump="cal_mag">
+            <div class="dose-label">
+              <span class="dose-name">Cal-Mag</span>
+              <span class="dose-status" id="dose-cal_mag-status">idle</span>
+            </div>
+            <div class="dose-controls">
+              <input type="number" id="dose-cal_mag-ml" min="0.1" max="15" step="0.5" value="3.0" class="dose-input">
+              <span class="dose-unit">mL</span>
+              <button class="btn btn-sm btn-primary" onclick="doseManual('cal_mag')">Dose</button>
+            </div>
+            <span class="dose-last" id="dose-cal_mag-last"></span>
           </div>
         </div>
       </div>
@@ -435,6 +447,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
