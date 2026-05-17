@@ -1227,9 +1227,11 @@ function renderPodEvents(events) {
 }
 
 // --- Reservoir age tracker ---
-// Recommended cadence for a 7-8L Gardyn reservoir: full change every
-// 7-10 days vegetative, every 14 days fruiting. We color-code at 7+ amber,
-// 10+ red.
+// With EC/pH/water-temp monitoring + Hydroguard top-ups and distilled water
+// for top-offs, target cadence is monthly. Amber at 21 days, red at 30.
+const RESERVOIR_WARN_DAYS = 21;
+const RESERVOIR_OVERDUE_DAYS = 30;
+
 async function loadReservoir() {
   try {
     const res = await fetch('/api/reservoir');
@@ -1251,16 +1253,16 @@ function renderReservoir(rs) {
   const days = rs.days_since_change;
   valueEl.textContent = days < 0 ? '--' : days;
   card.classList.remove('warning', 'danger');
-  if (days >= 10) card.classList.add('danger');
-  else if (days >= 7) card.classList.add('warning');
+  if (days >= RESERVOIR_OVERDUE_DAYS) card.classList.add('danger');
+  else if (days >= RESERVOIR_WARN_DAYS) card.classList.add('warning');
 
   if (statsEl) {
     if (days < 0) {
       statsEl.textContent = 'Never recorded';
-    } else if (days >= 10) {
+    } else if (days >= RESERVOIR_OVERDUE_DAYS) {
       statsEl.textContent = 'Overdue — change soon';
-    } else if (days >= 7) {
-      statsEl.textContent = 'Due for a change this week';
+    } else if (days >= RESERVOIR_WARN_DAYS) {
+      statsEl.textContent = 'Approaching monthly change';
     } else {
       statsEl.textContent = 'Healthy';
     }
