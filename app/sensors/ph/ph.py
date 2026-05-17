@@ -42,18 +42,36 @@ class PHSensorStub(PHSensor):
 class PHSensorEZO(PHSensor):
     """Real Atlas Scientific EZO-pH driver.
 
-    TODO: when hardware arrives, swap the body of read() with real I2C calls.
-    The EZO protocol over I2C is documented at
-    https://files.atlas-scientific.com/pH_EZO_Datasheet.pdf
+    Issues the "R" command and parses the single floating-point value the
+    EZO-pH returns. See app/sensors/ezo.py for protocol details.
+
+    Calibration (do this once with fresh probes, every ~3 months thereafter):
+        ph_sensor = PHSensorEZO()
+        ph_sensor.calibrate('mid', 7.00)   # rinse, place in pH 7 buffer
+        ph_sensor.calibrate('low', 4.00)   # rinse, place in pH 4 buffer
+        ph_sensor.calibrate('high', 10.00) # rinse, place in pH 10 buffer
     """
     def __init__(self, address: int = None):
+        from app.sensors.ezo import EZODevice
         self.address = address or config.PH_I2C_ADDRESS
+        self._device = EZODevice(self.address)
 
     def read(self) -> float:
-        raise NotImplementedError(
-            "Real EZO-pH driver not yet implemented. "
-            "Set PH_STUB=true in .env until hardware is wired."
-        )
+        raw = self._device.command("R")
+        return float(raw)
+
+    def calibrate(self, point: str, value: float) -> str:
+        """point: 'mid' | 'low' | 'high'. Probe must be in the buffer first."""
+        if point not in ("mid", "low", "high"):
+            raise ValueError("point must be 'mid', 'low', or 'high'")
+        return self._device.command(f"Cal,{point},{value:.2f}")
+
+    def calibration_status(self) -> str:
+        """Returns '?CAL,n' where n is 0,1,2,3 points calibrated."""
+        return self._device.command("Cal,?")
+
+    def set_temperature_compensation(self, celsius: float) -> str:
+        return self._device.set_temperature_compensation(celsius)
 
 
 def make_sensor() -> PHSensor:

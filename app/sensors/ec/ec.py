@@ -44,17 +44,68 @@ class ECSensorStub(ECSensor):
 class ECSensorEZO(ECSensor):
     """Real Atlas Scientific EZO-EC driver.
 
-    TODO: when hardware arrives, implement real I2C reads. EZO-EC datasheet:
-    https://files.atlas-scientific.com/EC_EZO_Datasheet.pdf
+    The EZO-EC returns a comma-delimited string controlled by its 'O' (output)
+    parameters. Factory default is "EC,TDS,SAL,SG" - we keep that default and
+    parse all four fields.
+
+    Calibration (one-time, with probe rinsed before each step):
+        ec_sensor = ECSensorEZO()
+        ec_sensor.calibrate_dry()              # probe in air, completely dry
+        ec_sensor.calibrate_single(1413)       # single-point @ 1413 uS/cm
+        # OR for two-point (more accurate across range):
+        ec_sensor.calibrate_low(12880)         # 12880 uS/cm buffer
+        ec_sensor.calibrate_high(150000)       # 150000 uS/cm buffer (rare)
     """
     def __init__(self, address: int = None):
+        from app.sensors.ezo import EZODevice
         self.address = address or config.EC_I2C_ADDRESS
+        self._device = EZODevice(self.address)
 
     def read(self) -> dict:
-        raise NotImplementedError(
-            "Real EZO-EC driver not yet implemented. "
-            "Set EC_STUB=true in .env until hardware is wired."
-        )
+        raw = self._device.command("R")
+        # Default output: "ec,tds,sal,sg"  e.g. "1413.0,706,0.7,1.000"
+        parts = raw.split(",")
+        ec_us = self._to_float(parts, 0)
+        tds = self._to_float(parts, 1)
+        sal = self._to_float(parts, 2)
+        sg = self._to_float(parts, 3)
+        return {
+            "ec": round(ec_us / 1000.0, 3) if ec_us is not None else None,  # mS/cm
+            "tds": tds,
+            "salinity": sal,
+            "sg": sg,
+        }
+
+    @staticmethod
+    def _to_float(parts, idx):
+        if idx >= len(parts):
+            return None
+        try:
+            return float(parts[idx])
+        except (ValueError, TypeError):
+            return None
+
+    def calibrate_dry(self) -> str:
+        return self._device.command("Cal,dry")
+
+    def calibrate_single(self, microsiemens_per_cm: int) -> str:
+        return self._device.command(f"Cal,{int(microsiemens_per_cm)}")
+
+    def calibrate_low(self, microsiemens_per_cm: int) -> str:
+        return self._device.command(f"Cal,low,{int(microsiemens_per_cm)}")
+
+    def calibrate_high(self, microsiemens_per_cm: int) -> str:
+        return self._device.command(f"Cal,high,{int(microsiemens_per_cm)}")
+
+    def calibration_status(self) -> str:
+        return self._device.command("Cal,?")
+
+    def set_probe_k_value(self, k: float) -> str:
+        """Set the K constant of the probe (default K=1.0)."""
+        return self._device.command(f"K,{k:.2f}")
+
+    def set_temperature_compensation(self, celsius: float) -> str:
+        return self._device.set_temperature_compensation(celsius)
 
 
 def make_sensor() -> ECSensor:
