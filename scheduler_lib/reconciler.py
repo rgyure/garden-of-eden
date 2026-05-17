@@ -2,6 +2,7 @@ import logging
 
 from scheduler_lib.brightness import get_target_brightness
 from scheduler_lib.pump_schedule import should_pump_be_on
+from scheduler_lib.nutrients import NutrientController
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,9 @@ class Reconciler:
         self.light_override = False
         self.pump_override = False
 
+        # Nutrient sub-controller (no-op until schedule.nutrients.enabled=true)
+        self.nutrients = NutrientController(client, base_topic)
+
     def update_state(self, topic_suffix, payload):
         """Called from on_message to track actual hardware state."""
         if topic_suffix == "light/brightness/state":
@@ -42,11 +46,22 @@ class Reconciler:
         elif topic_suffix == "pump/override":
             self.pump_override = payload.upper() == "ON"
             logger.info(f"Pump override {'enabled' if self.pump_override else 'disabled'}")
+        elif topic_suffix == "ph":
+            try:
+                self.nutrients.update_ph(float(payload))
+            except (ValueError, TypeError):
+                pass
+        elif topic_suffix == "ec":
+            try:
+                self.nutrients.update_ec(float(payload))
+            except (ValueError, TypeError):
+                pass
 
     def reconcile(self):
         """Run one reconciliation cycle. Publish corrections as needed."""
         self._reconcile_light()
         self._reconcile_pump()
+        self.nutrients.tick(self.config)
 
     def _reconcile_light(self):
         if self.light_override:

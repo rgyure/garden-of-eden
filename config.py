@@ -30,3 +30,13 @@ UPPER_IMAGE_PATH = os.getenv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg")
 LOWER_IMAGE_PATH = os.getenv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg")
 CAMERA_RESOLUTION = os.getenv("CAMERA_RESOLUTION", "640x480")
 IMAGE_INTERVAL_SECONDS = int(os.getenv("IMAGE_INTERVAL_SECONDS", "3600"))
+
+# Nutrient sensing (EC + pH). Set to "false" once Atlas Scientific EZO circuits
+# are wired on I2C so the real driver code runs.
+PH_STUB   = os.getenv("PH_STUB",   "true").lower() == "true"
+EC_STUB   = os.getenv("EC_STUB",   "true").lower() == "true"
+DOSE_STUB = os.getenv("DOSE_STUB", "true").lower() == "true"
+
+# Default I2C addresses for Atlas EZO circuits (configurable in firmware).
+PH_I2C_ADDRESS = int(os.getenv("PH_I2C_ADDRESS", "0x63"), 0)
+EC_I2C_ADDRESS = int(os.getenv("EC_I2C_ADDRESS", "0x64"), 0)

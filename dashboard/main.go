@@ -117,6 +117,7 @@ func main() {
 	mux.HandleFunc("POST /api/pod-baseline/{camera}", app.handleCaptureBaseline)
 	mux.HandleFunc("POST /api/pod-scan", app.handlePodScan)
 	mux.HandleFunc("GET /api/pod-events", app.handleGetPodEvents)
+	mux.HandleFunc("POST /api/dose/{name}", app.handleDoseCommand)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")

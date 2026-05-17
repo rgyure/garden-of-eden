@@ -855,6 +855,89 @@ section h2 {
 .event-when { color: #555; }
 .event-mag { font-weight: 600; color: #f57c00; }
 
+/* Nutrients + dose pumps */
+.stub-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #888;
+  background: #eee;
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.sensor-card.warning {
+  background: #fff3e0;
+  border-color: #ffb74d;
+}
+
+.dose-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dose-row {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #eee;
+}
+
+.dose-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.dose-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.dose-status {
+  font-size: 0.78rem;
+  color: #888;
+  text-transform: lowercase;
+}
+
+.dose-status.running {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.dose-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dose-input {
+  width: 80px;
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.dose-unit {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.dose-last {
+  font-size: 0.82rem;
+  color: #888;
+  text-align: right;
+  min-width: 120px;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .controls {

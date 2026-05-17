@@ -16,3 +16,33 @@ pump:
 
 scheduler:
   reconcile_interval_seconds: 60
+
+# Auto-dose nutrient controller. Disabled by default; flip enabled to true once
+# the Atlas EZO circuits + peristaltic pumps are wired and calibrated.
+nutrients:
+  enabled: false
+  ph:
+    target_min: 5.8
+    target_max: 6.2
+    dose_ml: 1.0
+    cooldown_minutes: 30
+  ec:
+    target_min: 1.2
+    target_max: 1.8
+    dose_a_ml: 5.0
+    dose_b_ml: 5.0
+    cooldown_minutes: 30
+
+dose_pumps:
+  ph_down:
+    enabled: true
+    flow_rate_ml_per_sec: 1.67
+    max_dose_ml: 10
+  nutrient_a:
+    enabled: true
+    flow_rate_ml_per_sec: 1.67
+    max_dose_ml: 20
+  nutrient_b:
+    enabled: true
+    flow_rate_ml_per_sec: 1.67
+    max_dose_ml: 20

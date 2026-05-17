@@ -175,6 +175,32 @@ func (app *App) handleCameraCapture(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleDoseCommand routes POST /api/dose/{name} body={"volume_ml": float}
+// to gardyn/dose/<name>/command. mqtt.py drives the actual peristaltic pump.
+func (app *App) handleDoseCommand(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "pump name required", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		VolumeML float64 `json:"volume_ml"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if body.VolumeML <= 0 || body.VolumeML > 100 {
+		http.Error(w, "volume_ml must be in (0, 100]", http.StatusBadRequest)
+		return
+	}
+	app.mqtt.Publish(
+		fmt.Sprintf("%s/dose/%s/command", app.config.BaseTopic, name),
+		fmt.Sprintf("%.2f", body.VolumeML),
+	)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (app *App) handleCamera(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var path string

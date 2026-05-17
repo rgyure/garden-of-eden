@@ -19,6 +19,9 @@ from app.sensors.pcb_temp.pcb_temp import get_pcb_temperature
 from app.sensors.temperature.temperature import temperature_sensor
 from app.sensors.humidity.humidity import humidity_sensor
 from app.sensors.pump.pump_power import fetch_ina219_data
+from app.sensors.ph.ph import ph_sensor
+from app.sensors.ec.ec import ec_sensor
+from app.sensors.dose.dose_pump import make_pumps
 from app.sensors.distance.distance import Distance, MeasurementError
 
 # Configure logging
@@ -47,6 +50,10 @@ pin_factory = PiGPIOFactory()
 pump = Pump(pin_factory=pin_factory)
 light = Light(pin_factory=pin_factory)
 distance_sensor = Distance(pin_factory=pin_factory) if DISTANCE_SENSOR_ENABLED else None
+
+# Three peristaltic dose pumps (pH-down, nutrient A, nutrient B). Run as stubs
+# until DOSE_STUB=false and real motor driver is wired.
+dose_pumps = make_pumps(pin_factory=pin_factory)
 
 # default on brightness
 brightness  = 50
@@ -450,6 +457,15 @@ def on_message(client, userdata, msg):
         elif topic_suffix == "image/capture":
             threading.Thread(target=capture_images, args=(client,), daemon=True).start()
 
+        elif topic_suffix.startswith("dose/") and topic_suffix.endswith("/command"):
+            # gardyn/dose/<name>/command  ->  trigger a dose of <payload> mL
+            name = topic_suffix.split("/")[1]
+            threading.Thread(
+                target=handle_dose_command,
+                args=(client, name, payload),
+                daemon=True,
+            ).start()
+
     except Exception as e:
         logger.exception(f"Error handling message on topic {msg.topic}: {e}")
 
@@ -482,6 +498,53 @@ def publish_humidity(client):
         except Exception as e:
             logger.error(f"Failed to read or publish ambient humidity: {e}")
         sleep(30*60)  # Publish frequency, every x seconds
+
+def publish_ph(client):
+    """Poll pH every 60s. Stub mode emits a slowly-varying value so the UI
+    can be built and tested before the EZO-pH circuit arrives."""
+    while True:
+        try:
+            value = ph_sensor.read()
+            client.publish(BASE_TOPIC + "/ph", f"{value:.2f}")
+            logger.info(f"Publishing pH: {value:.2f}")
+        except Exception as e:
+            logger.warning(f"Failed to read or publish pH: {e}")
+        sleep(60)
+
+
+def publish_ec(client):
+    """Poll EC every 60s. Stub mode emits a slowly-varying value."""
+    while True:
+        try:
+            value = ec_sensor.read()
+            ec_ms = value.get("ec")
+            tds   = value.get("tds")
+            if ec_ms is not None:
+                client.publish(BASE_TOPIC + "/ec", f"{ec_ms:.2f}")
+            if tds is not None:
+                client.publish(BASE_TOPIC + "/tds", f"{tds:.0f}")
+            logger.info(f"Publishing EC: {ec_ms} mS/cm (TDS {tds} ppm)")
+        except Exception as e:
+            logger.warning(f"Failed to read or publish EC: {e}")
+        sleep(60)
+
+
+def handle_dose_command(client, name, payload):
+    """Route gardyn/dose/<name>/command -> DosePump.dose_ml(payload)."""
+    pump = dose_pumps.get(name)
+    if pump is None:
+        logger.warning(f"dose command for unknown pump '{name}'")
+        return
+    try:
+        ml = float(payload)
+    except (TypeError, ValueError):
+        logger.warning(f"dose command for {name}: invalid payload {payload!r}")
+        return
+    client.publish(BASE_TOPIC + f"/dose/{name}/state", "RUNNING")
+    result = pump.dose_ml(ml)
+    client.publish(BASE_TOPIC + f"/dose/{name}/state", "IDLE")
+    client.publish(BASE_TOPIC + f"/dose/{name}/last", json.dumps(result))
+
 
 def publish_pump_power(client):
     """Poll INA219 fast (15s) while reads succeed so the chart can resolve
@@ -592,6 +655,14 @@ if __name__ == "__main__":
     pump_power_thread = threading.Thread(target=publish_pump_power, args=(client,))
     pump_power_thread.daemon = True
     pump_power_thread.start()
+
+    ph_thread = threading.Thread(target=publish_ph, args=(client,))
+    ph_thread.daemon = True
+    ph_thread.start()
+
+    ec_thread = threading.Thread(target=publish_ec, args=(client,))
+    ec_thread.daemon = True
+    ec_thread.start()
 
 
     publish_images_thread = threading.Thread(target=publish_images, args=(client,))

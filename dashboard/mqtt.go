@@ -27,6 +27,11 @@ type State struct {
 	PumpCurrent     *float64 `json:"pump_current"`
 	PumpVoltage     *float64 `json:"pump_voltage"`
 	PumpPower       *float64 `json:"pump_power"`
+	PH              *float64 `json:"ph"`
+	EC              *float64 `json:"ec"`
+	TDS             *float64 `json:"tds"`
+	DoseState       map[string]string `json:"dose_state"`
+	DoseLast        map[string]json.RawMessage `json:"dose_last"`
 	WaterLevel      *float64 `json:"water_level"`
 	WaterLowState   string   `json:"water_low_state"`
 	WaterLowCM      *float64 `json:"water_low_cm"`
@@ -39,6 +44,8 @@ func NewState() *State {
 	return &State{
 		LightState: "OFF",
 		PumpState:  "OFF",
+		DoseState:  map[string]string{},
+		DoseLast:   map[string]json.RawMessage{},
 	}
 }
 
@@ -46,6 +53,19 @@ func (s *State) Snapshot() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	cp := *s
+	// Deep-copy maps so concurrent writes don't race the JSON marshaller.
+	if s.DoseState != nil {
+		cp.DoseState = make(map[string]string, len(s.DoseState))
+		for k, v := range s.DoseState {
+			cp.DoseState[k] = v
+		}
+	}
+	if s.DoseLast != nil {
+		cp.DoseLast = make(map[string]json.RawMessage, len(s.DoseLast))
+		for k, v := range s.DoseLast {
+			cp.DoseLast[k] = v
+		}
+	}
 	return cp
 }
 
@@ -155,6 +175,34 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	now := time.Now()
 	changed := false
 
+	// Dynamic dose topics: gardyn/dose/<name>/{state,last}
+	if strings.HasPrefix(suffix, "dose/") {
+		parts := strings.Split(suffix, "/")
+		if len(parts) == 3 {
+			name, kind := parts[1], parts[2]
+			m.app.state.mu.Lock()
+			if m.app.state.DoseState == nil {
+				m.app.state.DoseState = map[string]string{}
+			}
+			if m.app.state.DoseLast == nil {
+				m.app.state.DoseLast = map[string]json.RawMessage{}
+			}
+			switch kind {
+			case "state":
+				m.app.state.DoseState[name] = strings.ToUpper(payload)
+				changed = true
+			case "last":
+				m.app.state.DoseLast[name] = json.RawMessage(payload)
+				changed = true
+			}
+			m.app.state.mu.Unlock()
+			if changed {
+				m.broadcastState()
+			}
+			return
+		}
+	}
+
 	m.app.state.mu.Lock()
 	switch suffix {
 	case "light/state":
@@ -211,6 +259,23 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	case "pump/power":
 		if v, err := strconv.ParseFloat(payload, 64); err == nil {
 			m.app.state.PumpPower = &v
+			changed = true
+		}
+	case "ph":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.PH = &v
+			m.app.store.Record("ph", v, now)
+			changed = true
+		}
+	case "ec":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.EC = &v
+			m.app.store.Record("ec", v, now)
+			changed = true
+		}
+	case "tds":
+		if v, err := strconv.ParseFloat(payload, 64); err == nil {
+			m.app.state.TDS = &v
 			changed = true
 		}
 	case "water/low/state":

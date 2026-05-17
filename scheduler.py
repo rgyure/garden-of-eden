@@ -77,6 +77,9 @@ def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe(BASE_TOPIC + "/temperature")
     client.subscribe(BASE_TOPIC + "/humidity")
     client.subscribe(BASE_TOPIC + "/pcb/temperature")
+    # Nutrient sensors drive the auto-dose controller in scheduler_lib/nutrients.py
+    client.subscribe(BASE_TOPIC + "/ph")
+    client.subscribe(BASE_TOPIC + "/ec")
 
 
 def create_on_message(reconciler):

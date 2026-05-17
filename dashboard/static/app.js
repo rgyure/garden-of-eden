@@ -85,6 +85,8 @@ function updateUI() {
   setVal('pcb-temp', cToF(state.pcb_temp));
   setVal('water-level', state.water_level);
   setVal('pump-current', state.pump_current);
+  renderNutrients(state);
+  renderDosePumps(state);
 
   // Overrides
   const lightOverride = document.getElementById('light-override');
@@ -120,6 +122,79 @@ function setVal(id, value) {
 function cToF(c) {
   if (c === null || c === undefined) return c;
   return c * 9 / 5 + 32;
+}
+
+// --- Nutrients + dose pumps ---
+function renderNutrients(state) {
+  setVal('ph-value', state.ph);
+  setVal('ec-value', state.ec);
+
+  // Color the pH/EC cards red when outside the configured target range.
+  const ph = state.ph;
+  const ec = state.ec;
+  const nutrients = (schedule && schedule.nutrients) || {};
+  const phRange = nutrients.ph || { target_min: 5.8, target_max: 6.2 };
+  const ecRange = nutrients.ec || { target_min: 1.2, target_max: 1.8 };
+
+  document.getElementById('ph-target').textContent =
+    `${phRange.target_min}–${phRange.target_max}`;
+  document.getElementById('ec-target').textContent =
+    `mS/cm · ${ecRange.target_min}–${ecRange.target_max}`;
+
+  const phCard = document.getElementById('ph-card');
+  const ecCard = document.getElementById('ec-card');
+  phCard.classList.toggle('warning',
+    ph !== null && ph !== undefined && (ph < phRange.target_min || ph > phRange.target_max));
+  ecCard.classList.toggle('warning',
+    ec !== null && ec !== undefined && (ec < ecRange.target_min || ec > ecRange.target_max));
+}
+
+function renderDosePumps(state) {
+  const doseState = state.dose_state || {};
+  const doseLast  = state.dose_last  || {};
+  let anyReal = false;
+
+  ['ph_down', 'nutrient_a', 'nutrient_b'].forEach(name => {
+    const statusEl = document.getElementById('dose-' + name + '-status');
+    const lastEl   = document.getElementById('dose-' + name + '-last');
+    const status = doseState[name] || 'IDLE';
+    statusEl.textContent = status.toLowerCase();
+    statusEl.classList.toggle('running', status === 'RUNNING');
+
+    const lastRaw = doseLast[name];
+    if (lastRaw) {
+      try {
+        const last = typeof lastRaw === 'string' ? JSON.parse(lastRaw) : lastRaw;
+        if (last && last.volume_ml !== undefined) {
+          lastEl.textContent = `last: ${last.volume_ml} mL` + (last.stub ? ' (stub)' : '');
+          if (!last.stub) anyReal = true;
+        }
+      } catch (e) { /* ignore */ }
+    }
+  });
+
+  const summary = document.getElementById('dose-summary');
+  if (summary) {
+    summary.textContent = anyReal
+      ? 'Hardware connected'
+      : 'Stub mode — hardware not wired';
+  }
+}
+
+async function doseManual(name) {
+  const ml = parseFloat(document.getElementById('dose-' + name + '-ml').value);
+  if (!isFinite(ml) || ml <= 0) { alert('Enter a positive mL value.'); return; }
+  if (!confirm(`Dose ${ml} mL of ${name}?`)) return;
+  try {
+    const res = await fetch('/api/dose/' + name, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ volume_ml: ml }),
+    });
+    if (!res.ok) alert('Dose request failed: ' + (await res.text()));
+  } catch (err) {
+    alert('Dose request failed');
+  }
 }
 
 function setConnectionStatus(connected) {
