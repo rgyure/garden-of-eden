@@ -884,6 +884,163 @@ section h2 {
   border-color: #e57373;
 }
 
+/* AI analysis */
+.ai-status {
+  font-size: 0.82rem;
+  color: #777;
+  margin-right: 8px;
+}
+
+.ai-summary-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.ai-summary {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #333;
+  line-height: 1.4;
+}
+
+.ai-health-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: #eee;
+  color: #555;
+  white-space: nowrap;
+}
+
+.ai-health-badge.thriving   { background: #c8e6c9; color: #1b5e20; }
+.ai-health-badge.healthy    { background: #e8f5e9; color: #2e7d32; }
+.ai-health-badge.stressed   { background: #fff8e1; color: #ef6c00; }
+.ai-health-badge.concerning { background: #ffebee; color: #c62828; }
+.ai-health-badge.error      { background: #ffebee; color: #c62828; }
+
+.ai-list {
+  margin: 6px 0 12px 18px;
+  padding: 0;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.ai-list li { margin-bottom: 3px; }
+
+.event-row.ai-issue.urgent { background: #ffebee; }
+.event-row.ai-issue.warn   { background: #fff8e1; }
+.event-row.ai-issue.info   { background: #fafafa; }
+
+.ai-meta {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 12px;
+}
+
+.ai-meta-model {
+  color: #aaa;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.ai-history-wrap {
+  margin-top: 16px;
+  border-top: 1px solid #eee;
+  padding-top: 12px;
+}
+
+.ai-history-wrap summary {
+  cursor: pointer;
+  color: #555;
+  font-size: 0.88rem;
+  padding: 4px 0;
+}
+
+.ai-history-entry {
+  border: 1px solid #eee;
+  border-radius: 4px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  background: #fafafa;
+}
+
+.ai-history-entry summary {
+  display: grid;
+  grid-template-columns: 170px auto 1fr;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.85rem;
+  list-style: none;
+}
+
+.ai-history-entry summary::-webkit-details-marker { display: none; }
+
+.ai-history-date {
+  color: #666;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.ai-history-summary {
+  color: #444;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-history-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dotted #ddd;
+  font-size: 0.88rem;
+  color: #444;
+}
+
+.ai-history-body h5 {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  margin: 10px 0 4px;
+}
+
+.ai-history-body ul {
+  margin: 2px 0 0 18px;
+  padding: 0;
+}
+
+.ai-sev-tag {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+  background: #eee;
+  color: #555;
+}
+
+.ai-sev-tag.urgent { background: #ffcdd2; color: #b71c1c; }
+.ai-sev-tag.warn   { background: #fff3e0; color: #e65100; }
+.ai-sev-tag.info   { background: #e3f2fd; color: #1565c0; }
+
+.ai-history-err {
+  background: #ffebee;
+  border-left: 3px solid #c62828;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: #b71c1c;
+}
+
 /* Reservoir tracker */
 .reservoir-row {
   display: grid;

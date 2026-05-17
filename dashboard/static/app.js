@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshCameras();
   loadPodEvents();
   loadReservoir();
+  loadAIAnalysis();
 });
 
 // --- SSE ---
@@ -1283,6 +1284,151 @@ function renderReservoir(rs) {
       return `<div class="history-row"><span>${h.date}</span><span>${noteText}</span></div>`;
     }).join('');
     historyEl.innerHTML = items || '<div class="history-row"><span>None yet</span></div>';
+  }
+}
+
+// --- AI garden analysis ---
+async function loadAIAnalysis() {
+  try {
+    const res = await fetch('/api/ai-analysis');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const results = data.results || [];
+    renderAIAnalysis(results[0] || null, data.enabled);
+    renderAIHistory(results);
+  } catch (err) {
+    console.error('Failed to load AI analysis:', err);
+  }
+}
+
+// Show every past analysis below the latest card. Each entry collapses to
+// date + headline; click to expand the summary, recommendations, and issues.
+function renderAIHistory(results) {
+  const wrap = document.getElementById('ai-history-wrap');
+  const list = document.getElementById('ai-history');
+  const countEl = document.getElementById('ai-history-count');
+  if (!wrap || !list || !countEl) return;
+  // Hide history when there's 0 or 1 result (the latest is shown above).
+  const past = results.slice(1);
+  countEl.textContent = past.length;
+  if (!past.length) {
+    wrap.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  wrap.style.display = '';
+  list.innerHTML = past.map(r => {
+    const ts = r.date ? new Date(r.date).toLocaleString() : '';
+    const health = (r.overall_health || 'unknown').toLowerCase();
+    const recsHtml = (r.recommendations || []).slice(0, 3).map(x => `<li>${escapeHtml(x)}</li>`).join('');
+    const issuesHtml = (r.issues || []).slice(0, 4).map(i => {
+      const sev = escapeHtml(i.severity || 'info');
+      const pod = i.pod ? `<strong>${escapeHtml(i.pod)}</strong> ` : '';
+      return `<li class="ai-issue-${sev}">${pod}<span class="ai-sev-tag ${sev}">${sev}</span> ${escapeHtml(i.description || '')}</li>`;
+    }).join('');
+    const recsBlock = recsHtml ? `<div class="ai-history-recs"><h5>Recommendations</h5><ul>${recsHtml}</ul></div>` : '';
+    const issuesBlock = issuesHtml ? `<div class="ai-history-issues"><h5>Issues</h5><ul>${issuesHtml}</ul></div>` : '';
+    const errBlock = r.error ? `<div class="ai-history-err">Error: ${escapeHtml(r.error)}</div>` : '';
+    return `<details class="ai-history-entry">
+      <summary>
+        <span class="ai-history-date">${escapeHtml(ts)}</span>
+        <span class="ai-health-badge ${escapeHtml(health)}">${escapeHtml(health)}</span>
+        <span class="ai-history-summary">${escapeHtml((r.summary || '').slice(0, 120))}${(r.summary || '').length > 120 ? '...' : ''}</span>
+      </summary>
+      <div class="ai-history-body">
+        ${errBlock}
+        ${r.summary ? `<p>${escapeHtml(r.summary)}</p>` : ''}
+        ${recsBlock}
+        ${issuesBlock}
+      </div>
+    </details>`;
+  }).join('');
+}
+
+function renderAIAnalysis(result, enabled) {
+  const statusEl = document.getElementById('ai-status');
+  const runBtn = document.getElementById('ai-run-btn');
+  const summaryEl = document.getElementById('ai-summary');
+  const healthEl = document.getElementById('ai-health');
+  const recEl = document.getElementById('ai-recommendations');
+  const issuesEl = document.getElementById('ai-issues');
+  const metaEl = document.getElementById('ai-meta');
+
+  if (!enabled) {
+    statusEl.textContent = 'Disabled — set AI_ANALYSIS_ENABLED + ANTHROPIC_API_KEY';
+    runBtn.disabled = true;
+    return;
+  }
+  runBtn.disabled = false;
+
+  if (!result) {
+    statusEl.textContent = 'No analyses yet';
+    return;
+  }
+
+  if (result.error) {
+    statusEl.textContent = 'Last run errored';
+    summaryEl.textContent = result.error;
+    healthEl.textContent = 'error';
+    healthEl.className = 'ai-health-badge error';
+    return;
+  }
+
+  const ts = result.date ? new Date(result.date).toLocaleString() : '';
+  statusEl.textContent = ts ? `Last analysis: ${ts}` : '';
+
+  const h = (result.overall_health || 'unknown').toLowerCase();
+  healthEl.textContent = h;
+  healthEl.className = 'ai-health-badge ' + h;
+  summaryEl.textContent = result.summary || '';
+
+  const recs = (result.recommendations || []).map(r => `<li>${escapeHtml(r)}</li>`).join('');
+  recEl.innerHTML = recs ? '<h4 class="modal-section-title">Recommendations</h4><ul class="ai-list">' + recs + '</ul>' : '';
+
+  const issues = (result.issues || []).map(i => {
+    const pod = i.pod ? `<span class="event-pod">${escapeHtml(i.pod)}</span>` : '<span class="event-pod">—</span>';
+    return `<div class="event-row ai-issue ${escapeHtml(i.severity || 'info')}">
+      ${pod}
+      <span class="event-camera">${escapeHtml(i.severity || 'info')}</span>
+      <span class="event-when">${escapeHtml(i.description || '')}</span>
+    </div>`;
+  }).join('');
+  issuesEl.innerHTML = issues ? '<h4 class="modal-section-title">Issues</h4>' + issues : '';
+
+  const harvestParts = [];
+  if (result.harvest_ready && result.harvest_ready.length) {
+    harvestParts.push(`<strong>Harvest ready:</strong> ${result.harvest_ready.map(escapeHtml).join(', ')}`);
+  }
+  if (result.needs_attention && result.needs_attention.length) {
+    harvestParts.push(`<strong>Needs attention:</strong> ${result.needs_attention.map(escapeHtml).join(', ')}`);
+  }
+  const modelLabel = result.model || '';
+  const tokenLabel = (result.input_tokens || result.output_tokens)
+    ? ` · ${result.input_tokens || 0} in / ${result.output_tokens || 0} out tokens`
+    : '';
+  metaEl.innerHTML = harvestParts.join(' · ') +
+    (harvestParts.length ? '<br>' : '') +
+    `<span class="ai-meta-model">${escapeHtml(modelLabel)}${escapeHtml(tokenLabel)}</span>`;
+}
+
+async function runAIAnalysis() {
+  const btn = document.getElementById('ai-run-btn');
+  const statusEl = document.getElementById('ai-status');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  statusEl.textContent = 'Capturing photos + asking Claude (60-90s)...';
+  try {
+    const res = await fetch('/api/ai-analysis/run', { method: 'POST' });
+    if (!res.ok) {
+      alert('Analysis failed: ' + (await res.text()));
+      return;
+    }
+    await loadAIAnalysis();
+  } catch (err) {
+    alert('Analysis request failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze now';
   }
 }
 

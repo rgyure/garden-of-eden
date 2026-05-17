@@ -31,6 +31,10 @@ type Config struct {
 	PodBaselineDir     string
 	PodEventsPath      string
 	ReservoirPath      string
+	AIAnalysisEnabled  bool
+	AIAnalysisModel    string
+	AIAnalysisPath     string
+	AnthropicAPIKey    string
 	DataDir            string
 	UpperImagePath     string
 	LowerImagePath     string
@@ -71,6 +75,10 @@ func loadConfig() Config {
 		PodBaselineDir:     getEnv("POD_BASELINE_DIR", "pod_baselines"),
 		PodEventsPath:      getEnv("POD_EVENTS_PATH", "pod_events.jsonl"),
 		ReservoirPath:      getEnv("RESERVOIR_PATH", "reservoir.yml"),
+		AIAnalysisEnabled:  getEnv("AI_ANALYSIS_ENABLED", "false") == "true",
+		AIAnalysisModel:    getEnv("AI_ANALYSIS_MODEL", "claude-opus-4-7"),
+		AIAnalysisPath:     getEnv("AI_ANALYSIS_PATH", "ai_analysis.jsonl"),
+		AnthropicAPIKey:    getEnv("ANTHROPIC_API_KEY", ""),
 		DataDir:            getEnv("DASHBOARD_DATA_DIR", "data"),
 		UpperImagePath:     getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
 		LowerImagePath:     getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
@@ -97,6 +105,7 @@ func main() {
 		scanHour = 12
 	}
 	app.startDailyScan(scanHour)
+	app.startDailyAIAnalysis(scanHour)
 
 	mux := http.NewServeMux()
 
@@ -122,6 +131,8 @@ func main() {
 	mux.HandleFunc("POST /api/dose/{name}", app.handleDoseCommand)
 	mux.HandleFunc("GET /api/reservoir", app.handleGetReservoir)
 	mux.HandleFunc("POST /api/reservoir/change", app.handlePostReservoirChange)
+	mux.HandleFunc("GET /api/ai-analysis", app.handleGetAIAnalysis)
+	mux.HandleFunc("POST /api/ai-analysis/run", app.handleRunAIAnalysis)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
