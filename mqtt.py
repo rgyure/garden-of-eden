@@ -645,7 +645,13 @@ def verify_dose_effect(client, name, volume_ml, baseline):
             f"Dose anomaly: {name} {volume_ml}mL produced delta={delta} {unit} "
             f"(expected >= {expected}). Check bottle level / tube clog / calibration."
         )
-        client.publish(BASE_TOPIC + f"/dose/{name}/anomaly", json.dumps(anomaly))
+        # Retain so the latest anomaly per pump survives dashboard restarts and
+        # is delivered to any new subscriber on connect.
+        client.publish(BASE_TOPIC + f"/dose/{name}/anomaly", json.dumps(anomaly), retain=True)
+    else:
+        # Clear any stale retained anomaly on a successful verification so the
+        # red row goes away once the user fixes the bottle.
+        client.publish(BASE_TOPIC + f"/dose/{name}/anomaly", "", retain=True)
 
 
 def publish_pump_power(client):

@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadHistory('24h');
   refreshCameras();
   loadPodEvents();
+  loadReservoir();
 });
 
 // --- SSE ---
@@ -1223,4 +1224,82 @@ function renderPodEvents(events) {
     </div>`;
   }).join('');
   el.innerHTML = '<h4 class="modal-section-title">Recent change events</h4>' + rows;
+}
+
+// --- Reservoir age tracker ---
+// Recommended cadence for a 7-8L Gardyn reservoir: full change every
+// 7-10 days vegetative, every 14 days fruiting. We color-code at 7+ amber,
+// 10+ red.
+async function loadReservoir() {
+  try {
+    const res = await fetch('/api/reservoir');
+    if (!res.ok) throw new Error(await res.text());
+    renderReservoir(await res.json());
+  } catch (err) {
+    console.error('Failed to load reservoir state:', err);
+  }
+}
+
+function renderReservoir(rs) {
+  const valueEl   = document.getElementById('reservoir-age-value');
+  const card      = document.getElementById('reservoir-card');
+  const statsEl   = document.getElementById('reservoir-stats');
+  const lastEl    = document.getElementById('reservoir-last');
+  const historyEl = document.getElementById('reservoir-history');
+  if (!valueEl || !card) return;
+
+  const days = rs.days_since_change;
+  valueEl.textContent = days < 0 ? '--' : days;
+  card.classList.remove('warning', 'danger');
+  if (days >= 10) card.classList.add('danger');
+  else if (days >= 7) card.classList.add('warning');
+
+  if (statsEl) {
+    if (days < 0) {
+      statsEl.textContent = 'Never recorded';
+    } else if (days >= 10) {
+      statsEl.textContent = 'Overdue — change soon';
+    } else if (days >= 7) {
+      statsEl.textContent = 'Due for a change this week';
+    } else {
+      statsEl.textContent = 'Healthy';
+    }
+  }
+
+  if (lastEl) {
+    if (rs.last_change) {
+      const noteText = rs.notes ? ` — ${escapeHtml(rs.notes)}` : '';
+      lastEl.innerHTML = `Last change: <strong>${rs.last_change}</strong>${noteText}`;
+    } else {
+      lastEl.textContent = 'No change recorded yet. Press "I changed it today" once you do a flush.';
+    }
+  }
+
+  if (historyEl) {
+    const items = (rs.history || []).slice(0, 20).map(h => {
+      const noteText = h.notes ? ` — ${escapeHtml(h.notes)}` : '';
+      return `<div class="history-row"><span>${h.date}</span><span>${noteText}</span></div>`;
+    }).join('');
+    historyEl.innerHTML = items || '<div class="history-row"><span>None yet</span></div>';
+  }
+}
+
+async function markReservoirChanged() {
+  const notes = (document.getElementById('reservoir-notes').value || '').trim();
+  if (!confirm('Record that the reservoir was fully changed today?')) return;
+  try {
+    const res = await fetch('/api/reservoir/change', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    if (!res.ok) {
+      alert('Failed to record change: ' + (await res.text()));
+      return;
+    }
+    document.getElementById('reservoir-notes').value = '';
+    loadReservoir();
+  } catch (err) {
+    alert('Failed to record change');
+  }
 }

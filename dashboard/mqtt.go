@@ -207,7 +207,11 @@ func (m *MQTTConn) onMessage(_ mqtt.Client, msg mqtt.Message) {
 				m.app.state.DoseLast[name] = json.RawMessage(payload)
 				changed = true
 			case "anomaly":
-				m.app.state.DoseAnomaly[name] = json.RawMessage(payload)
+				if payload == "" {
+					delete(m.app.state.DoseAnomaly, name)
+				} else {
+					m.app.state.DoseAnomaly[name] = json.RawMessage(payload)
+				}
 				changed = true
 			}
 			m.app.state.mu.Unlock()

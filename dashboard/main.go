@@ -30,6 +30,7 @@ type Config struct {
 	PodCalibrationPath string
 	PodBaselineDir     string
 	PodEventsPath      string
+	ReservoirPath      string
 	DataDir            string
 	UpperImagePath     string
 	LowerImagePath     string
@@ -69,6 +70,7 @@ func loadConfig() Config {
 		PodCalibrationPath: getEnv("POD_CALIBRATION_PATH", "pod_calibration.yml"),
 		PodBaselineDir:     getEnv("POD_BASELINE_DIR", "pod_baselines"),
 		PodEventsPath:      getEnv("POD_EVENTS_PATH", "pod_events.jsonl"),
+		ReservoirPath:      getEnv("RESERVOIR_PATH", "reservoir.yml"),
 		DataDir:            getEnv("DASHBOARD_DATA_DIR", "data"),
 		UpperImagePath:     getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
 		LowerImagePath:     getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
@@ -118,6 +120,8 @@ func main() {
 	mux.HandleFunc("POST /api/pod-scan", app.handlePodScan)
 	mux.HandleFunc("GET /api/pod-events", app.handleGetPodEvents)
 	mux.HandleFunc("POST /api/dose/{name}", app.handleDoseCommand)
+	mux.HandleFunc("GET /api/reservoir", app.handleGetReservoir)
+	mux.HandleFunc("POST /api/reservoir/change", app.handlePostReservoirChange)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")

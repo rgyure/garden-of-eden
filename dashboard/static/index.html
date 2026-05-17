@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Garden of Eden</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <div class="container">
@@ -112,6 +112,31 @@
           <span class="sensor-value" id="water-temp-value">--</span>
           <span class="sensor-unit">&deg;F</span>
         </div>
+      </div>
+    </section>
+
+    <!-- Reservoir age -->
+    <section>
+      <div class="section-header">
+        <h2>Reservoir</h2>
+        <span class="pod-stats" id="reservoir-stats">--</span>
+      </div>
+      <div class="card" id="reservoir-card">
+        <div class="reservoir-row">
+          <div class="reservoir-age">
+            <span class="reservoir-age-value" id="reservoir-age-value">--</span>
+            <span class="reservoir-age-label">days since last change</span>
+          </div>
+          <div class="reservoir-actions">
+            <input type="text" id="reservoir-notes" class="reservoir-notes-input" placeholder="notes (optional, e.g. added Hydroguard)">
+            <button class="btn btn-primary" onclick="markReservoirChanged()">I changed it today</button>
+          </div>
+        </div>
+        <div id="reservoir-last" class="reservoir-last"></div>
+        <details id="reservoir-history-wrap" class="reservoir-history-wrap">
+          <summary>History</summary>
+          <div id="reservoir-history"></div>
+        </details>
       </div>
     </section>
 
@@ -456,6 +481,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
