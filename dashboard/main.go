@@ -90,6 +90,12 @@ func main() {
 
 	app.mqtt = NewMQTTConn(app)
 
+	scanHour, _ := strconv.Atoi(getEnv("POD_SCAN_HOUR", "12"))
+	if scanHour < 0 || scanHour > 23 {
+		scanHour = 12
+	}
+	app.startDailyScan(scanHour)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/state", app.handleGetState)

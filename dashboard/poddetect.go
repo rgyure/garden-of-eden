@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -41,6 +42,56 @@ const (
 )
 
 var eventsMu sync.Mutex
+
+// startDailyScan triggers a fresh camera capture and runs runScan once per day
+// at the given local hour (0-23). Designed to be fire-and-forget at startup.
+func (app *App) startDailyScan(hour int) {
+	go func() {
+		for {
+			next := nextLocalTime(hour)
+			log.Printf("Next pod scan scheduled for %s", next.Format(time.RFC1123))
+			time.Sleep(time.Until(next))
+			app.runDailyScan()
+		}
+	}()
+}
+
+// runDailyScan asks mqtt.py to capture fresh frames, waits for them to land on
+// disk, then runs a scan and logs a one-line summary per camera.
+func (app *App) runDailyScan() {
+	if app.mqtt != nil {
+		app.mqtt.Publish(app.config.BaseTopic+"/image/capture", "")
+	}
+	time.Sleep(7 * time.Second)
+
+	cal, err := readCalibration(app.config.PodCalibrationPath)
+	if err != nil {
+		log.Printf("daily pod scan: read calibration: %v", err)
+		return
+	}
+	for _, r := range app.runScan(cal) {
+		if r.Error != "" {
+			log.Printf("daily pod scan: %s: %s", r.Camera, r.Error)
+			continue
+		}
+		changed := 0
+		for _, e := range r.Events {
+			if e.Changed {
+				changed++
+			}
+		}
+		log.Printf("daily pod scan: %s: %d/%d pods flagged", r.Camera, changed, len(r.Events))
+	}
+}
+
+func nextLocalTime(hour int) time.Time {
+	now := time.Now()
+	next := time.Date(now.Year(), now.Month(), now.Day(), hour, 0, 0, 0, now.Location())
+	if !next.After(now) {
+		next = next.Add(24 * time.Hour)
+	}
+	return next
+}
 
 // handlePodScan triggers an on-demand scan of both cameras against their
 // baseline images, appends any "changed" events to the events log, and returns
