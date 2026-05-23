@@ -7,6 +7,7 @@ import (
 	"html"
 	"log"
 	"net/smtp"
+	"os"
 	"strings"
 	"time"
 )
@@ -42,16 +43,36 @@ func (app *App) sendDigest(result *AnalysisResult) {
 		return
 	}
 
+	// Best-effort photo embed. JPEGs are attached if readable; if the
+	// upstream rejects the photo-embedded version (size, content filter,
+	// reputation) we retry without photos so the daily digest still lands.
+	upperJPEG, _ := os.ReadFile(c.UpperImagePath)
+	lowerJPEG, _ := os.ReadFile(c.LowerImagePath)
 	subject := digestSubject(result)
-	htmlBody := digestHTML(result, c.DashboardPublicURL)
 	textBody := digestText(result, c.DashboardPublicURL)
 
-	if err := sendMail(c.SMTPHost, c.SMTPPort, c.SMTPUsername, c.SMTPPassword,
-		c.EmailFrom, c.EmailTo, subject, textBody, htmlBody); err != nil {
-		log.Printf("email digest: send failed: %v", err)
+	send := func(withPhotos bool) error {
+		u, l := upperJPEG, lowerJPEG
+		if !withPhotos {
+			u, l = nil, nil
+		}
+		htmlBody := digestHTML(result, c.DashboardPublicURL, len(u) > 0, len(l) > 0)
+		rawMsg := buildMIME(c.EmailFrom, c.EmailTo, subject, textBody, htmlBody, u, l)
+		return dialAndSend(c.SMTPHost, c.SMTPPort, c.SMTPUsername, c.SMTPPassword,
+			c.EmailFrom, c.EmailTo, rawMsg)
+	}
+
+	if err := send(true); err != nil {
+		log.Printf("email digest: photo-embedded send failed (%v); retrying without photos", err)
+		if err2 := send(false); err2 != nil {
+			log.Printf("email digest: text-only fallback also failed: %v", err2)
+			return
+		}
+		log.Printf("email digest: sent to %s (text-only fallback)", c.EmailTo)
 		return
 	}
-	log.Printf("email digest: sent to %s", c.EmailTo)
+	log.Printf("email digest: sent to %s (upper:%d B, lower:%d B)",
+		c.EmailTo, len(upperJPEG), len(lowerJPEG))
 }
 
 func digestSubject(r *AnalysisResult) string {
@@ -64,8 +85,10 @@ func digestSubject(r *AnalysisResult) string {
 }
 
 // digestHTML produces an inline-styled HTML email body. We avoid <style>
-// blocks because many clients (notably Gmail) strip them.
-func digestHTML(r *AnalysisResult, dashboardURL string) string {
+// blocks because many clients (notably Gmail) strip them. The hasUpper/
+// hasLower flags control whether <img src="cid:..."> tags are emitted;
+// they're set true only when the JPEGs were successfully read.
+func digestHTML(r *AnalysisResult, dashboardURL string, hasUpper, hasLower bool) string {
 	var b strings.Builder
 	b.WriteString(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;line-height:1.45;max-width:680px;margin:auto;padding:16px;">`)
 
@@ -73,6 +96,25 @@ func digestHTML(r *AnalysisResult, dashboardURL string) string {
 	b.WriteString(`<td style="font-size:20px;font-weight:700;">Gardyn daily digest</td>`)
 	b.WriteString(`<td style="text-align:right;">` + healthBadge(r.OverallHealth) + `</td>`)
 	b.WriteString(`</tr></table>`)
+
+	// Camera photos at the top of the email so the reader sees what Claude
+	// saw before reading any of the analysis.
+	if hasUpper || hasLower {
+		b.WriteString(`<table style="width:100%;border-collapse:collapse;margin-bottom:14px;"><tr>`)
+		if hasUpper {
+			b.WriteString(`<td style="width:50%;padding:0 4px 0 0;vertical-align:top;">`)
+			b.WriteString(`<img src="cid:upper-cam" alt="Upper camera" style="display:block;width:100%;border-radius:6px;border:1px solid #ddd;">`)
+			b.WriteString(`<div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.4px;margin-top:4px;">Upper (pods A1-C5)</div>`)
+			b.WriteString(`</td>`)
+		}
+		if hasLower {
+			b.WriteString(`<td style="width:50%;padding:0 0 0 4px;vertical-align:top;">`)
+			b.WriteString(`<img src="cid:lower-cam" alt="Lower camera" style="display:block;width:100%;border-radius:6px;border:1px solid #ddd;">`)
+			b.WriteString(`<div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.4px;margin-top:4px;">Lower (pods A6-C10)</div>`)
+			b.WriteString(`</td>`)
+		}
+		b.WriteString(`</tr></table>`)
+	}
 
 	if r.Error != "" {
 		b.WriteString(`<div style="background:#fff8e1;border-left:3px solid #f9a825;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#5d4037;">`)
@@ -267,33 +309,75 @@ func digestText(r *AnalysisResult, dashboardURL string) string {
 	return b.String()
 }
 
-// sendMail dispatches a multipart/alternative email. Supports STARTTLS (587)
-// and implicit TLS (465).
-func sendMail(host string, port int, username, password, from, to, subject, text, htmlBody string) error {
+// buildMIME constructs a multipart/related document containing a
+// multipart/alternative (text + HTML) plus zero or more inline JPEG
+// attachments referenced by Content-ID. This is the standard pattern
+// Gmail/Apple Mail/Outlook all render correctly.
+func buildMIME(from, to, subject, text, htmlBody string, upperJPEG, lowerJPEG []byte) []byte {
+	hasImages := len(upperJPEG) > 0 || len(lowerJPEG) > 0
+	nano := time.Now().UnixNano()
+	altBoundary := fmt.Sprintf("gardyn-alt-%d", nano)
+	relBoundary := fmt.Sprintf("gardyn-rel-%d", nano)
+
+	var b strings.Builder
+	b.WriteString("From: " + from + "\r\n")
+	b.WriteString("To: " + to + "\r\n")
+	b.WriteString("Subject: " + mimeEncode(subject) + "\r\n")
+	b.WriteString("MIME-Version: 1.0\r\n")
+	if hasImages {
+		b.WriteString(`Content-Type: multipart/related; boundary="` + relBoundary + `"; type="multipart/alternative"` + "\r\n\r\n")
+		b.WriteString("--" + relBoundary + "\r\n")
+	}
+	// multipart/alternative wraps the text + HTML parts.
+	b.WriteString(`Content-Type: multipart/alternative; boundary="` + altBoundary + `"` + "\r\n\r\n")
+	b.WriteString("--" + altBoundary + "\r\n")
+	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
+	b.WriteString(text)
+	b.WriteString("\r\n--" + altBoundary + "\r\n")
+	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
+	b.WriteString(htmlBody)
+	b.WriteString("\r\n--" + altBoundary + "--\r\n")
+
+	if hasImages {
+		if len(upperJPEG) > 0 {
+			appendInlineImage(&b, relBoundary, "upper-cam", "upper.jpg", upperJPEG)
+		}
+		if len(lowerJPEG) > 0 {
+			appendInlineImage(&b, relBoundary, "lower-cam", "lower.jpg", lowerJPEG)
+		}
+		b.WriteString("--" + relBoundary + "--\r\n")
+	}
+	return []byte(b.String())
+}
+
+func appendInlineImage(b *strings.Builder, boundary, cid, filename string, data []byte) {
+	b.WriteString("\r\n--" + boundary + "\r\n")
+	b.WriteString("Content-Type: image/jpeg; name=\"" + filename + "\"\r\n")
+	b.WriteString("Content-Transfer-Encoding: base64\r\n")
+	b.WriteString("Content-ID: <" + cid + ">\r\n")
+	b.WriteString("Content-Disposition: inline; filename=\"" + filename + "\"\r\n\r\n")
+	// Base64 encode + line-wrap at 76 chars per RFC 2045.
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		b.WriteString(encoded[i:end])
+		b.WriteString("\r\n")
+	}
+}
+
+// dialAndSend handles STARTTLS (587) and implicit TLS (465) transparently.
+func dialAndSend(host string, port int, username, password, from, to string, message []byte) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", username, password, host)
-
-	boundary := fmt.Sprintf("gardyn-%d", time.Now().UnixNano())
-	headers := []string{
-		"From: " + from,
-		"To: " + to,
-		"Subject: " + mimeEncode(subject),
-		"MIME-Version: 1.0",
-		"Content-Type: multipart/alternative; boundary=" + boundary,
-	}
-	body := strings.Join(headers, "\r\n") + "\r\n\r\n" +
-		"--" + boundary + "\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
-		text + "\r\n" +
-		"--" + boundary + "\r\n" +
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n" +
-		htmlBody + "\r\n" +
-		"--" + boundary + "--\r\n"
-
 	if port == 465 {
-		return sendImplicitTLS(addr, host, auth, from, to, []byte(body))
+		return sendImplicitTLS(addr, host, auth, from, to, message)
 	}
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(body))
+	return smtp.SendMail(addr, auth, from, []string{to}, message)
 }
 
 func sendImplicitTLS(addr, host string, auth smtp.Auth, from, to string, body []byte) error {
