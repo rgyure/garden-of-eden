@@ -186,7 +186,21 @@ func (app *App) runAIAnalysis() (*AnalysisResult, error) {
 	if err := appendAIAnalysisLog(app.config.AIAnalysisPath, result); err != nil {
 		log.Printf("AI analysis: failed to persist result: %v", err)
 	}
+	// Email the digest after persistence so a failure here doesn't lose the log.
+	app.sendDigest(result)
 	return result, nil
+}
+
+// handleSendDigestNow sends an email digest for the most recent analysis
+// without re-running the model. Useful for testing email setup.
+func (app *App) handleSendDigestNow(w http.ResponseWriter, r *http.Request) {
+	results, err := readAIAnalysisLog(app.config.AIAnalysisPath, 1)
+	if err != nil || len(results) == 0 {
+		http.Error(w, "no analysis on file to send", http.StatusNotFound)
+		return
+	}
+	app.sendDigest(&results[0])
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // buildAnalysisPrompt fills the system context with live state + inventory.
@@ -404,7 +418,7 @@ func callAnthropic(apiKey, model, prompt string, upperJPEG, lowerJPEG []byte) (*
 		Messages  []message `json:"messages"`
 	}{
 		Model:     model,
-		MaxTokens: 6144,
+		MaxTokens: 12000,
 		Messages: []message{{
 			Role: "user",
 			Content: []contentBlock{
@@ -444,8 +458,9 @@ func callAnthropic(apiKey, model, prompt string, upperJPEG, lowerJPEG []byte) (*
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Model string `json:"model"`
-		Usage struct {
+		Model      string `json:"model"`
+		StopReason string `json:"stop_reason"`
+		Usage      struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -463,28 +478,172 @@ func callAnthropic(apiKey, model, prompt string, upperJPEG, lowerJPEG []byte) (*
 		return nil, errors.New("empty response from anthropic")
 	}
 
-	parsed, err := parseAnalysisJSON(rawText)
-	if err != nil {
-		return nil, fmt.Errorf("parse model JSON: %w (raw: %q)", err, rawText)
+	parsed, parseErr := parseAnalysisJSON(rawText)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parse model JSON: %w (raw: %q)", parseErr, rawText)
 	}
 	parsed.Model = wire.Model
 	parsed.InputTokens = wire.Usage.InputTokens
 	parsed.OutputTokens = wire.Usage.OutputTokens
+	if wire.StopReason == "max_tokens" {
+		// We salvaged the JSON via parseAnalysisJSON's repair pass but the model
+		// would have continued if it could. Surface that so the operator knows
+		// some sections may be incomplete and so we can bump the cap if it keeps
+		// happening.
+		parsed.Error = fmt.Sprintf(
+			"warning: model hit max_tokens (%d output tokens); response was repaired but may be truncated",
+			wire.Usage.OutputTokens,
+		)
+	}
 	return parsed, nil
 }
 
+// parseAnalysisJSON pulls the JSON object out of the model's response and
+// tolerates two failure modes:
+//   1. The model wraps the JSON in markdown code fences.
+//   2. The model is cut off by max_tokens mid-object, leaving unclosed
+//      braces / brackets / strings.
+// For (2) we attempt a one-pass repair: if there are open structures, append
+// closing characters in the right order and retry the unmarshal. Anything
+// salvageable comes back; fields after the truncation point are simply zero
+// values, which the renderer already handles gracefully.
 func parseAnalysisJSON(s string) (*AnalysisResult, error) {
 	b := []byte(s)
 	start := bytes.IndexByte(b, '{')
-	end := bytes.LastIndexByte(b, '}')
-	if start < 0 || end <= start {
+	if start < 0 {
 		return nil, errors.New("no JSON object found")
 	}
+	end := bytes.LastIndexByte(b, '}')
+	// Try strict parse first (covers the happy path and any well-closed JSON).
+	if end > start {
+		var r AnalysisResult
+		if err := json.Unmarshal(b[start:end+1], &r); err == nil {
+			return &r, nil
+		}
+	}
+	repaired := repairTruncatedJSON(string(b[start:]))
 	var r AnalysisResult
-	if err := json.Unmarshal(b[start:end+1], &r); err != nil {
+	if err := json.Unmarshal([]byte(repaired), &r); err != nil {
 		return nil, err
 	}
 	return &r, nil
+}
+
+// repairTruncatedJSON walks the string tracking brace/bracket/string state
+// and appends the missing closers in reverse order. It also strips any
+// trailing dangling comma or unfinished key:value pair to keep parsers happy.
+func repairTruncatedJSON(s string) string {
+	stack := []byte{}
+	inString := false
+	escape := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && inString {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch c {
+		case '{', '[':
+			stack = append(stack, c)
+		case '}':
+			if len(stack) > 0 && stack[len(stack)-1] == '{' {
+				stack = stack[:len(stack)-1]
+			}
+		case ']':
+			if len(stack) > 0 && stack[len(stack)-1] == '[' {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	out := s
+	// If the cut happened inside a string, close it.
+	if inString {
+		out += `"`
+	}
+	// Strip any trailing dangling `,` or `: ` left mid-key-value pair, plus
+	// whitespace - these would otherwise produce another parse error before
+	// the closers are appended.
+	for {
+		trimmed := false
+		for len(out) > 0 {
+			last := out[len(out)-1]
+			if last == ' ' || last == '\t' || last == '\n' || last == '\r' {
+				out = out[:len(out)-1]
+				trimmed = true
+				continue
+			}
+			break
+		}
+		if len(out) == 0 {
+			break
+		}
+		last := out[len(out)-1]
+		if last == ',' || last == ':' {
+			out = out[:len(out)-1]
+			trimmed = true
+			continue
+		}
+		if !trimmed {
+			break
+		}
+	}
+	// If the last meaningful token is a key like `"foo"` with no value, drop
+	// it back to the preceding comma.
+	out = stripUnfinishedKey(out)
+	// Close remaining open containers in reverse order.
+	for i := len(stack) - 1; i >= 0; i-- {
+		switch stack[i] {
+		case '{':
+			out += "}"
+		case '[':
+			out += "]"
+		}
+	}
+	return out
+}
+
+// stripUnfinishedKey removes a trailing `"key"` that has no `: value` after it.
+// Called only on a string that's been right-trimmed of whitespace and stray
+// commas/colons. Walks back from the end through one complete string token.
+func stripUnfinishedKey(s string) string {
+	if len(s) == 0 || s[len(s)-1] != '"' {
+		return s
+	}
+	// Walk back through the string contents (respecting escapes) to find the
+	// opening quote.
+	i := len(s) - 2
+	for i >= 0 {
+		if s[i] == '"' && (i == 0 || s[i-1] != '\\') {
+			break
+		}
+		i--
+	}
+	if i < 0 {
+		return s
+	}
+	// Drop the unfinished key plus any preceding comma + whitespace.
+	out := s[:i]
+	for len(out) > 0 {
+		last := out[len(out)-1]
+		if last == ' ' || last == '\t' || last == '\n' || last == '\r' || last == ',' {
+			out = out[:len(out)-1]
+			continue
+		}
+		break
+	}
+	return out
 }
 
 func appendAIAnalysisLog(path string, r *AnalysisResult) error {

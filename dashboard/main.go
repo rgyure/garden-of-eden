@@ -35,6 +35,14 @@ type Config struct {
 	AIAnalysisModel    string
 	AIAnalysisPath     string
 	AnthropicAPIKey    string
+	EmailDigestEnabled bool
+	SMTPHost           string
+	SMTPPort           int
+	SMTPUsername       string
+	SMTPPassword       string
+	EmailFrom          string
+	EmailTo            string
+	DashboardPublicURL string
 	DataDir            string
 	UpperImagePath     string
 	LowerImagePath     string
@@ -53,6 +61,11 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func atoiOrZero(s string) int {
+	v, _ := strconv.Atoi(s)
+	return v
 }
 
 func loadConfig() Config {
@@ -79,6 +92,14 @@ func loadConfig() Config {
 		AIAnalysisModel:    getEnv("AI_ANALYSIS_MODEL", "claude-opus-4-7"),
 		AIAnalysisPath:     getEnv("AI_ANALYSIS_PATH", "ai_analysis.jsonl"),
 		AnthropicAPIKey:    getEnv("ANTHROPIC_API_KEY", ""),
+		EmailDigestEnabled: getEnv("EMAIL_DIGEST_ENABLED", "false") == "true",
+		SMTPHost:           getEnv("SMTP_HOST", ""),
+		SMTPPort:           atoiOrZero(getEnv("SMTP_PORT", "")),
+		SMTPUsername:       getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:       getEnv("SMTP_PASSWORD", ""),
+		EmailFrom:          getEnv("EMAIL_FROM", ""),
+		EmailTo:            getEnv("EMAIL_TO", ""),
+		DashboardPublicURL: getEnv("DASHBOARD_PUBLIC_URL", "https://gardyn.ryan.gy"),
 		DataDir:            getEnv("DASHBOARD_DATA_DIR", "data"),
 		UpperImagePath:     getEnv("UPPER_IMAGE_PATH", "/tmp/upper_camera.jpg"),
 		LowerImagePath:     getEnv("LOWER_IMAGE_PATH", "/tmp/lower_camera.jpg"),
@@ -133,6 +154,7 @@ func main() {
 	mux.HandleFunc("POST /api/reservoir/change", app.handlePostReservoirChange)
 	mux.HandleFunc("GET /api/ai-analysis", app.handleGetAIAnalysis)
 	mux.HandleFunc("POST /api/ai-analysis/run", app.handleRunAIAnalysis)
+	mux.HandleFunc("POST /api/email-digest/test", app.handleSendDigestNow)
 	mux.HandleFunc("GET /api/history", app.handleGetHistory)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
