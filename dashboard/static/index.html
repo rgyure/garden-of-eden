@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Garden of Eden</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <div class="container">
@@ -121,6 +121,7 @@
         <h2>AI garden analysis</h2>
         <div class="btn-group">
           <span id="ai-status" class="ai-status">--</span>
+          <button class="btn btn-sm" id="ai-email-btn" onclick="resendDigest()" title="Re-send the most recent analysis to the configured email">Email digest</button>
           <button class="btn btn-sm btn-primary" id="ai-run-btn" onclick="runAIAnalysis()">Analyze now</button>
         </div>
       </div>
@@ -510,6 +511,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=14"></script>
 </body>
 </html>

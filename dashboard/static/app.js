@@ -1554,6 +1554,31 @@ async function runAIAnalysis() {
   }
 }
 
+// Re-send the most recent analysis as an email digest. Server reads the
+// latest entry from ai_analysis.jsonl, so no new Anthropic call is made.
+async function resendDigest() {
+  const btn = document.getElementById('ai-email-btn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    const res = await fetch('/api/email-digest/test', { method: 'POST' });
+    if (res.ok) {
+      btn.textContent = 'Sent ✓';
+      setTimeout(() => { btn.textContent = original; }, 2500);
+    } else {
+      const msg = await res.text();
+      alert('Email digest failed: ' + (msg || res.status));
+      btn.textContent = original;
+    }
+  } catch (err) {
+    alert('Email request failed');
+    btn.textContent = original;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function markReservoirChanged() {
   const notes = (document.getElementById('reservoir-notes').value || '').trim();
   if (!confirm('Record that the reservoir was fully changed today?')) return;
