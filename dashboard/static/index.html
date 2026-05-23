@@ -4,17 +4,34 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Garden of Eden</title>
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
+  <!-- Toast notifications -->
+  <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+
   <div class="container">
     <header>
       <h1>Garden of Eden</h1>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">&#x263D;</button>
       <span class="status" id="conn-status">Connecting...</span>
     </header>
 
+    <!-- Today overview (auto-populated; chips scroll to detail sections) -->
+    <section class="section-today" id="section-today">
+      <div class="today-card card">
+        <div class="today-row">
+          <div class="today-health">
+            <span class="ai-health-badge" id="today-health">--</span>
+            <p class="today-summary" id="today-summary">Live overview will appear once data loads.</p>
+          </div>
+          <div class="today-chips" id="today-chips"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Controls -->
-    <section class="controls">
+    <section class="controls section-controls">
       <div class="card control-card" id="light-card">
         <h2>Light</h2>
         <div class="toggle-row">
@@ -64,7 +81,7 @@
     </section>
 
     <!-- Sensors -->
-    <section>
+    <section class="section-sensors" id="section-sensors">
       <h2>Sensors</h2>
       <div class="sensor-grid">
         <div class="card sensor-card">
@@ -116,11 +133,12 @@
     </section>
 
     <!-- AI daily analysis -->
-    <section>
+    <section class="section-ai" id="section-ai">
       <div class="section-header">
         <h2>AI garden analysis</h2>
         <div class="btn-group">
           <span id="ai-status" class="ai-status">--</span>
+          <button class="btn btn-sm" id="ai-copy-btn" onclick="copyAIReport()" title="Copy the latest analysis as Markdown">Copy report</button>
           <button class="btn btn-sm" id="ai-email-btn" onclick="resendDigest()" title="Re-send the most recent analysis to the configured email">Email digest</button>
           <button class="btn btn-sm btn-primary" id="ai-run-btn" onclick="runAIAnalysis()">Analyze now</button>
         </div>
@@ -146,7 +164,7 @@
     </section>
 
     <!-- Reservoir age -->
-    <section>
+    <section class="section-reservoir" id="section-reservoir">
       <div class="section-header">
         <h2>Reservoir</h2>
         <span class="pod-stats" id="reservoir-stats">--</span>
@@ -171,7 +189,7 @@
     </section>
 
     <!-- Dose pumps -->
-    <section>
+    <section class="section-dose" id="section-dose">
       <div class="section-header">
         <h2>Dose pumps</h2>
         <span class="pod-stats" id="dose-summary">Stub mode &mdash; hardware not wired</span>
@@ -235,7 +253,7 @@
     </section>
 
     <!-- Cameras -->
-    <section>
+    <section class="section-cameras" id="section-cameras">
       <div class="section-header">
         <h2>Cameras</h2>
         <div class="btn-group">
@@ -246,19 +264,19 @@
       <div class="camera-grid">
         <div class="card camera-card">
           <h3>Upper</h3>
-          <img id="camera-upper" alt="Upper camera">
+          <img id="camera-upper" alt="Upper camera" onclick="openLightbox('upper')" style="cursor:zoom-in">
           <span class="camera-timestamp" id="camera-upper-ts"></span>
         </div>
         <div class="card camera-card">
           <h3>Lower</h3>
-          <img id="camera-lower" alt="Lower camera">
+          <img id="camera-lower" alt="Lower camera" onclick="openLightbox('lower')" style="cursor:zoom-in">
           <span class="camera-timestamp" id="camera-lower-ts"></span>
         </div>
       </div>
     </section>
 
     <!-- Pod changes -->
-    <section>
+    <section class="section-pod-changes" id="section-pod-changes">
       <div class="section-header">
         <h2>Pod changes</h2>
         <div class="btn-group">
@@ -273,7 +291,7 @@
     </section>
 
     <!-- Plants -->
-    <section>
+    <section class="section-plants" id="section-plants">
       <div class="section-header">
         <h2>Plants</h2>
         <span class="pod-stats" id="pod-stats">--</span>
@@ -291,7 +309,7 @@
     </section>
 
     <!-- Harvest analytics -->
-    <section>
+    <section class="section-harvest" id="section-harvest">
       <div class="section-header">
         <h2>Harvest analytics</h2>
         <span class="pod-stats" id="harvest-summary">--</span>
@@ -311,7 +329,7 @@
     </section>
 
     <!-- Schedule -->
-    <section>
+    <section class="section-schedule" id="section-schedule">
       <div class="section-header">
         <h2>Schedule</h2>
         <button class="btn btn-sm" id="schedule-edit-btn" onclick="toggleScheduleEdit()">Edit</button>
@@ -398,9 +416,12 @@
     </section>
 
     <!-- History -->
-    <section>
+    <section class="section-history" id="section-history">
       <div class="section-header">
         <h2>History</h2>
+        <div class="history-controls">
+          <input type="search" id="history-search" placeholder="Search analyses + events..." class="history-search" oninput="filterHistory(this.value)">
+        </div>
         <div class="period-selector">
           <button class="btn btn-sm active" onclick="loadHistory('24h', this)">24h</button>
           <button class="btn btn-sm" onclick="loadHistory('7d', this)">7d</button>
@@ -509,8 +530,18 @@
     </div>
   </div>
 
+  <!-- Camera lightbox -->
+  <div class="modal-backdrop hidden" id="lightbox-modal" onclick="closeLightbox(event)">
+    <div class="lightbox-content" onclick="event.stopPropagation()">
+      <button class="modal-close lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+      <img id="lightbox-img" alt="Camera view">
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script src="app.js?v=14"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

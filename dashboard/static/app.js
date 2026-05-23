@@ -2,10 +2,57 @@ let state = {};
 let schedule = {};
 let inventory = { layout: { columns: 3, rows: 10 }, plantings: [] };
 let varieties = [];
+let latestAI = null;          // latest AnalysisResult for the Today overview
+let podEvents = [];           // cached for history overlay
+let reservoirState = null;    // cached for Today overview + history annotations
 let activePodId = null;
 let chart = null;
 let harvestChart = null;
 let editing = false;
+
+// --- Toast notifications (replace toast(, 'error') throughout) ---
+function toast(message, type) {
+  type = type || 'info';
+  const stack = document.getElementById('toast-stack');
+  if (!stack) return;
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  t.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  t.textContent = message;
+  t.onclick = () => t.classList.add('toast-fade');
+  stack.appendChild(t);
+  // Auto-dismiss
+  const ttl = type === 'error' ? 8000 : 4000;
+  setTimeout(() => t.classList.add('toast-fade'), ttl);
+  setTimeout(() => t.remove(), ttl + 400);
+}
+
+// --- Dark mode ---
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.innerHTML = theme === 'dark' ? '&#x2600;' : '&#x263D;';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('gardyn-theme', next); } catch (e) {}
+}
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('gardyn-theme'); } catch (e) {}
+  if (saved) {
+    applyTheme(saved);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme('dark');
+  } else {
+    applyTheme('light');
+  }
+}
+initTheme();
 
 const STAGE_PRESETS = {
   germination: { runs_per_day: 2, run_duration_minutes: 1 },
@@ -36,7 +83,120 @@ document.addEventListener('DOMContentLoaded', () => {
   loadReservoir();
   loadAIAnalysis();
   refreshCalibrationStatus();
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLightbox();
+  });
 });
+
+// --- Today overview ---
+// Pulls the latest AI health, sensor metrics, reservoir age, and issue
+// counts into a one-row at-a-glance card at the top of the page.
+function renderToday() {
+  const healthEl = document.getElementById('today-health');
+  const summaryEl = document.getElementById('today-summary');
+  const chipsEl = document.getElementById('today-chips');
+  if (!healthEl || !chipsEl) return;
+
+  if (latestAI && !latestAI.error) {
+    const h = (latestAI.overall_health || 'unknown').toLowerCase();
+    healthEl.textContent = h;
+    healthEl.className = 'ai-health-badge ' + h;
+    summaryEl.textContent = latestAI.executive_summary || latestAI.summary || '';
+  } else {
+    healthEl.textContent = '--';
+    healthEl.className = 'ai-health-badge';
+    summaryEl.textContent = latestAI && latestAI.error
+      ? 'Last analysis failed; run again.'
+      : 'No AI analysis yet. Click "Analyze now" to start.';
+  }
+
+  const chips = [];
+  const nutrients = (schedule && schedule.nutrients) || {};
+  const phRange = nutrients.ph || { target_min: 5.8, target_max: 6.2 };
+  const ecRange = nutrients.ec || { target_min: 1.2, target_max: 1.8 };
+
+  if (state.ph !== null && state.ph !== undefined) {
+    const tone = (state.ph < phRange.target_min || state.ph > phRange.target_max) ? 'warn' : 'ok';
+    chips.push({ label: 'pH', value: state.ph.toFixed(2), tone, target: '#section-sensors' });
+  }
+  if (state.ec !== null && state.ec !== undefined) {
+    const tone = (state.ec < ecRange.target_min || state.ec > ecRange.target_max) ? 'warn' : 'ok';
+    chips.push({ label: 'EC', value: state.ec.toFixed(2) + ' mS', tone, target: '#section-sensors' });
+  }
+  if (state.water_temp !== null && state.water_temp !== undefined) {
+    const f = cToF(state.water_temp);
+    const tone = f >= 80 ? 'danger' : f >= 75 ? 'warn' : 'ok';
+    chips.push({ label: 'Water', value: f.toFixed(1) + '°F', tone, target: '#section-sensors' });
+  }
+  if (reservoirState && reservoirState.days_since_change >= 0) {
+    const d = reservoirState.days_since_change;
+    const tone = d >= 30 ? 'danger' : d >= 21 ? 'warn' : 'ok';
+    chips.push({ label: 'Reservoir', value: d + 'd', tone, target: '#section-reservoir' });
+  }
+  const activeCount = (inventory.plantings || []).filter(p => !p.ended).length;
+  if (activeCount > 0) {
+    chips.push({ label: 'Plantings', value: activeCount, tone: 'ok', target: '#section-plants' });
+  }
+  if (latestAI && latestAI.issues && latestAI.issues.length) {
+    const urgent = latestAI.issues.filter(i => i.severity === 'urgent').length;
+    const warn = latestAI.issues.filter(i => i.severity === 'warn').length;
+    const tone = urgent > 0 ? 'danger' : warn > 0 ? 'warn' : 'ok';
+    chips.push({
+      label: 'Issues',
+      value: latestAI.issues.length,
+      tone,
+      target: '#section-ai',
+    });
+  }
+
+  chipsEl.innerHTML = chips.map(c =>
+    `<a href="${c.target}" class="today-chip tone-${c.tone}">
+      <span class="today-chip-label">${escapeHtml(c.label)}</span>
+      <span class="today-chip-value">${escapeHtml(String(c.value))}</span>
+    </a>`
+  ).join('');
+
+  updateTabTitle();
+}
+
+function updateTabTitle() {
+  let n = 0;
+  if (latestAI && latestAI.issues) {
+    n += latestAI.issues.filter(i => i.severity === 'urgent' || i.severity === 'warn').length;
+  }
+  if (reservoirState && reservoirState.days_since_change >= 30) n += 1;
+  if (state.water_temp !== undefined && state.water_temp !== null && cToF(state.water_temp) >= 80) n += 1;
+  document.title = n > 0 ? `(${n}) Garden of Eden` : 'Garden of Eden';
+}
+
+// --- Lightbox ---
+function openLightbox(camera) {
+  const modal = document.getElementById('lightbox-modal');
+  const img = document.getElementById('lightbox-img');
+  const cap = document.getElementById('lightbox-caption');
+  img.src = `/api/camera/${camera}?t=${Date.now()}`;
+  cap.textContent = camera === 'upper' ? 'Upper camera (pods A1–C5)' : 'Lower camera (pods A6–C10)';
+  modal.classList.remove('hidden');
+}
+
+function closeLightbox(ev) {
+  const modal = document.getElementById('lightbox-modal');
+  if (!modal) return;
+  if (ev && ev.target && ev.currentTarget && ev.target !== ev.currentTarget) {
+    // Click was inside the lightbox content, not the backdrop.
+    return;
+  }
+  modal.classList.add('hidden');
+}
+
+// --- History search ---
+function filterHistory(query) {
+  query = (query || '').toLowerCase().trim();
+  document.querySelectorAll('#ai-history .ai-history-entry, #pod-events-list .event-row').forEach(el => {
+    if (!query) { el.style.display = ''; return; }
+    el.style.display = el.textContent.toLowerCase().includes(query) ? '' : 'none';
+  });
+}
 
 // --- SSE ---
 function connectSSE() {
@@ -92,6 +252,7 @@ function updateUI() {
   renderWaterTempWarning(state);
   renderNutrients(state);
   renderDosePumps(state);
+  renderToday();
 
   // Overrides
   const lightOverride = document.getElementById('light-override');
@@ -221,7 +382,7 @@ function renderDosePumps(state) {
 
 async function doseManual(name) {
   const ml = parseFloat(document.getElementById('dose-' + name + '-ml').value);
-  if (!isFinite(ml) || ml <= 0) { alert('Enter a positive mL value.'); return; }
+  if (!isFinite(ml) || ml <= 0) { toast('Enter a positive mL value.', 'error'); return; }
   if (!confirm(`Dose ${ml} mL of ${name}?`)) return;
   try {
     const res = await fetch('/api/dose/' + name, {
@@ -229,9 +390,9 @@ async function doseManual(name) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ volume_ml: ml }),
     });
-    if (!res.ok) alert('Dose request failed: ' + (await res.text()));
+    if (!res.ok) toast('Dose request failed: ' + (await res.text()), 'error');
   } catch (err) {
-    alert('Dose request failed');
+    toast('Dose request failed', 'error');
   }
 }
 
@@ -388,11 +549,11 @@ async function setStage(stageKey) {
       renderSchedule();
     } else {
       const msg = await res.text();
-      alert('Failed to set stage: ' + msg);
+      toast('Failed to set stage: ' + msg, 'error');
       document.getElementById('stage-select').value = inferStage(schedule.pump);
     }
   } catch (err) {
-    alert('Failed to set stage');
+    toast('Failed to set stage', 'error');
     document.getElementById('stage-select').value = inferStage(schedule.pump);
   }
 }
@@ -456,10 +617,10 @@ async function saveSchedule(e) {
       toggleScheduleEdit();
     } else {
       const msg = await res.text();
-      alert('Failed to save: ' + msg);
+      toast('Failed to save: ' + msg, 'error');
     }
   } catch (err) {
-    alert('Failed to save schedule');
+    toast('Failed to save schedule', 'error');
   }
 }
 
@@ -679,10 +840,14 @@ function renderPodGrid() {
       const planting = activePlantingFor(id);
       const stage = computeStage(planting);
 
-      const cell = document.createElement('div');
+      const cell = document.createElement('button');
+      cell.type = 'button';
       cell.className = 'pod-cell ' + stage;
       cell.onclick = () => openPodModal(id);
       cell.title = planting ? `${planting.variety} (${daysSince(planting.planted)}d)` : `Pod ${id} — empty`;
+      cell.setAttribute('aria-label', planting
+        ? `Pod ${id}, ${planting.variety}, ${daysSince(planting.planted)} days planted`
+        : `Pod ${id}, empty`);
 
       const idEl = document.createElement('div');
       idEl.className = 'pod-id';
@@ -770,8 +935,8 @@ async function addPlanting() {
   if (!activePodId) return;
   const variety = document.getElementById('new-variety').value.trim();
   const planted = document.getElementById('new-planted').value;
-  if (!variety) { alert('Variety is required'); return; }
-  if (!planted) { alert('Planted date is required'); return; }
+  if (!variety) { toast('Variety is required', 'error'); return; }
+  if (!planted) { toast('Planted date is required', 'error'); return; }
 
   const planting = {
     id: nextPlantingId(),
@@ -801,7 +966,7 @@ async function savePodEdit() {
 
   const before = { ...planting };
   const variety = document.getElementById('edit-variety').value.trim();
-  if (!variety) { alert('Variety is required'); return; }
+  if (!variety) { toast('Variety is required', 'error'); return; }
 
   planting.variety = variety;
   planting.planted = document.getElementById('edit-planted').value;
@@ -862,9 +1027,9 @@ async function logHarvest() {
   const planting = activePlantingFor(activePodId);
   if (!planting) return;
   const gramsRaw = document.getElementById('harvest-grams').value.trim();
-  if (!gramsRaw) { alert('Enter a weight in grams.'); return; }
+  if (!gramsRaw) { toast('Enter a weight in grams.', 'error'); return; }
   const grams = parseFloat(gramsRaw);
-  if (!isFinite(grams) || grams < 0) { alert('Weight must be a positive number.'); return; }
+  if (!isFinite(grams) || grams < 0) { toast('Weight must be a positive number.', 'error'); return; }
 
   const entry = {
     date: new Date().toISOString().slice(0, 10),
@@ -895,12 +1060,12 @@ async function saveInventory() {
       body: JSON.stringify(inventory)
     });
     if (!res.ok) {
-      alert('Failed to save: ' + (await res.text()));
+      toast('Failed to save: ' + (await res.text()), 'error');
       return false;
     }
     return true;
   } catch (err) {
-    alert('Failed to save inventory');
+    toast('Failed to save inventory', 'error');
     return false;
   }
 }
@@ -1008,10 +1173,41 @@ function renderChart(readings) {
         }
       },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } }
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } },
+        annotation: { annotations: buildHistoryAnnotations() }
       }
     }
   });
+}
+
+// Build vertical line annotations for reservoir-change events. Hooks into
+// chartjs-plugin-annotation v3 which the page now loads.
+function buildHistoryAnnotations() {
+  const anns = {};
+  if (reservoirState && reservoirState.history) {
+    reservoirState.history.forEach((h, i) => {
+      const t = new Date(h.date).getTime();
+      if (!isFinite(t)) return;
+      anns['res-' + i] = {
+        type: 'line',
+        xMin: t,
+        xMax: t,
+        borderColor: 'rgba(76, 175, 80, 0.6)',
+        borderWidth: 2,
+        borderDash: [6, 4],
+        label: {
+          display: true,
+          content: 'reservoir',
+          position: 'start',
+          color: '#1b5e20',
+          font: { size: 10 },
+          backgroundColor: 'rgba(232, 245, 233, 0.9)',
+          padding: 2,
+        }
+      };
+    });
+  }
+  return anns;
 }
 
 // --- Pod calibration + detection ---
@@ -1147,12 +1343,12 @@ async function saveCalibration() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(calibration)
     });
-    if (!res.ok) { alert('Failed to save: ' + (await res.text())); return; }
+    if (!res.ok) { toast('Failed to save: ' + (await res.text()), 'error'); return; }
     closeCalibrationModal();
     refreshCalibrationStatus();
     loadPodEvents();
   } catch (err) {
-    alert('Failed to save calibration');
+    toast('Failed to save calibration', 'error');
   }
 }
 
@@ -1178,10 +1374,10 @@ async function captureBaseline() {
   if (!confirm(`Snapshot the current ${calibCamera} frame as the baseline? Future scans compare against this image.`)) return;
   try {
     const res = await fetch(`/api/pod-baseline/${calibCamera}`, { method: 'POST' });
-    if (!res.ok) { alert('Failed to capture baseline: ' + (await res.text())); return; }
-    alert(`${calibCamera} baseline saved.`);
+    if (!res.ok) { toast('Failed to capture baseline: ' + (await res.text()), 'error'); return; }
+    toast(`${calibCamera} baseline saved`, 'success');
   } catch (err) {
-    alert('Failed to capture baseline');
+    toast('Failed to capture baseline', 'error');
   }
 }
 
@@ -1195,7 +1391,7 @@ async function runPodScan() {
     renderScanResults(data.results || []);
     loadPodEvents();
   } catch (err) {
-    alert('Scan failed');
+    toast('Scan failed', 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Scan now';
@@ -1264,6 +1460,8 @@ async function loadReservoir() {
 }
 
 function renderReservoir(rs) {
+  reservoirState = rs;
+  renderToday();
   const valueEl   = document.getElementById('reservoir-age-value');
   const card      = document.getElementById('reservoir-card');
   const statsEl   = document.getElementById('reservoir-stats');
@@ -1314,8 +1512,10 @@ async function loadAIAnalysis() {
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     const results = data.results || [];
-    renderAIAnalysis(results[0] || null, data.enabled);
+    latestAI = results[0] || null;
+    renderAIAnalysis(latestAI, data.enabled);
     renderAIHistory(results);
+    renderToday();
   } catch (err) {
     console.error('Failed to load AI analysis:', err);
   }
@@ -1428,20 +1628,30 @@ function renderAIAnalysis(result, enabled) {
     }
   }
 
-  // Multi-section narrative.
+  // Multi-section narrative — collapsed by default. The executive summary
+  // above already gives the headline; long narrative is on-demand.
   if (sectionsEl) {
     const sections = [
-      ['Canopy',         result.canopy_assessment],
-      ['Root zone',      result.root_zone_assessment],
-      ['Environment',    result.environmental_assessment],
+      ['Canopy',          result.canopy_assessment],
+      ['Root zone',       result.root_zone_assessment],
+      ['Environment',     result.environmental_assessment],
       ['Harvest outlook', result.harvest_outlook],
     ].filter(([_, text]) => text && text.trim());
-    sectionsEl.innerHTML = sections.map(([title, text]) =>
-      `<div class="ai-section">
-        <h5 class="ai-section-title">${escapeHtml(title)}</h5>
-        <p>${escapeHtml(text)}</p>
-      </div>`
-    ).join('');
+    if (sections.length === 0) {
+      sectionsEl.innerHTML = '';
+    } else {
+      sectionsEl.innerHTML = `<details class="ai-narrative-wrap">
+        <summary>Full narrative (${sections.length} sections)</summary>
+        <div class="ai-narrative-grid">
+          ${sections.map(([title, text]) =>
+            `<div class="ai-section">
+              <h5 class="ai-section-title">${escapeHtml(title)}</h5>
+              <p>${escapeHtml(text)}</p>
+            </div>`
+          ).join('')}
+        </div>
+      </details>`;
+    }
   }
 
   // Per-planting cards.
@@ -1542,12 +1752,12 @@ async function runAIAnalysis() {
   try {
     const res = await fetch('/api/ai-analysis/run', { method: 'POST' });
     if (!res.ok) {
-      alert('Analysis failed: ' + (await res.text()));
+      toast('Analysis failed: ' + (await res.text()), 'error');
       return;
     }
     await loadAIAnalysis();
   } catch (err) {
-    alert('Analysis request failed');
+    toast('Analysis request failed', 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Analyze now';
@@ -1556,6 +1766,58 @@ async function runAIAnalysis() {
 
 // Re-send the most recent analysis as an email digest. Server reads the
 // latest entry from ai_analysis.jsonl, so no new Anthropic call is made.
+// Copy the latest AI analysis as Markdown to the clipboard so it can be
+// pasted into Slack/Notes/etc.
+async function copyAIReport() {
+  if (!latestAI) { toast('No analysis to copy yet', 'warning'); return; }
+  const r = latestAI;
+  const lines = [];
+  lines.push(`# Gardyn analysis — ${(r.date || '').slice(0, 10)}`);
+  lines.push('');
+  lines.push(`**Overall health:** ${r.overall_health || 'unknown'}`);
+  lines.push('');
+  if (r.executive_summary) { lines.push(r.executive_summary, ''); }
+  if (r.recommendations && r.recommendations.length) {
+    lines.push('## Top recommendations');
+    r.recommendations.forEach((x, i) => lines.push(`${i + 1}. ${x}`));
+    lines.push('');
+  }
+  if (r.per_planting && r.per_planting.length) {
+    lines.push('## Per-planting');
+    r.per_planting.forEach(p => {
+      lines.push(`### ${p.pod} — ${p.variety} (${p.growth_stage}, ${p.days_planted}d)`);
+      if (p.projected_harvest_date) lines.push(`- Projected harvest: ${p.projected_harvest_date}`);
+      if (p.yield_estimate_g) lines.push(`- Estimated yield: ${p.yield_estimate_g}g`);
+      if (p.assessment) lines.push('', p.assessment);
+      if (p.actions_today && p.actions_today.length) {
+        lines.push('', '**Today:**');
+        p.actions_today.forEach(a => lines.push(`- ${a}`));
+      }
+      lines.push('');
+    });
+  }
+  if (r.seven_day_plan && r.seven_day_plan.length) {
+    lines.push('## 7-day plan');
+    r.seven_day_plan.forEach(d => {
+      lines.push(`**${d.day}**`);
+      (d.actions || []).forEach(a => lines.push(`- ${a}`));
+      lines.push('');
+    });
+  }
+  if (r.risk_forecast && r.risk_forecast.length) {
+    lines.push('## Risks');
+    r.risk_forecast.forEach(x => {
+      lines.push(`- **${x.risk}** (${x.likelihood}): ${x.rationale} _Mitigation: ${x.mitigation}_`);
+    });
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    toast('Report copied as Markdown', 'success');
+  } catch (e) {
+    toast('Clipboard access denied — try Cmd/Ctrl+C from a text selection', 'error');
+  }
+}
+
 async function resendDigest() {
   const btn = document.getElementById('ai-email-btn');
   const original = btn.textContent;
@@ -1568,11 +1830,11 @@ async function resendDigest() {
       setTimeout(() => { btn.textContent = original; }, 2500);
     } else {
       const msg = await res.text();
-      alert('Email digest failed: ' + (msg || res.status));
+      toast('Email digest failed: ' + (msg || res.status), 'error');
       btn.textContent = original;
     }
   } catch (err) {
-    alert('Email request failed');
+    toast('Email request failed', 'error');
     btn.textContent = original;
   } finally {
     btn.disabled = false;
@@ -1589,12 +1851,12 @@ async function markReservoirChanged() {
       body: JSON.stringify({ notes }),
     });
     if (!res.ok) {
-      alert('Failed to record change: ' + (await res.text()));
+      toast('Failed to record change: ' + (await res.text()), 'error');
       return;
     }
     document.getElementById('reservoir-notes').value = '';
     loadReservoir();
   } catch (err) {
-    alert('Failed to record change');
+    toast('Failed to record change', 'error');
   }
 }
